@@ -10,7 +10,7 @@ A comprehensive Model Context Protocol (MCP) server providing access to the comp
 - **Geographic Filtering**: Bounding boxes, radius searches, place-based queries
 - **Taxonomic Search**: Species identification, hierarchical browsing, autocomplete
 - **Community Features**: Projects, users, comments, identifications, flags
-- **Authentication Support**: Optional API token for enhanced access
+- **Authentication Support**: OAuth credentials for enhanced access
 - **Auto-Generated Tools**: Automatically introspects SDK modules to generate MCP tools
 
 ## Installation
@@ -32,24 +32,27 @@ yarn build:all
 ### Basic Usage (Read-only)
 
 ```bash
-node index.js
+node dist/index.js
 ```
 
-### With Authentication
+### With OAuth Authentication
 
 ```bash
-# Using command line argument
-node index.js --api-token your-token-here
+# Using command line arguments
+node dist/index.js --client-id your-client-id --client-secret your-client-secret --username your-username --password your-password
 
-# Using environment variable
-export INATURALIST_API_TOKEN=your-token-here
-node index.js
+# Using environment variables
+export INAT_CLIENT_ID=your-client-id
+export INAT_CLIENT_SECRET=your-client-secret
+export INAT_USERNAME=your-username
+export INAT_PASSWORD=your-password
+node dist/index.js
 ```
 
 ### Custom Configuration
 
 ```bash
-node index.js --base-url https://api.inaturalist.org/v1 --api-token your-token-here
+node dist/index.js --base-url https://api.inaturalist.org/v1 --client-id your-client-id --client-secret your-client-secret
 ```
 
 ## Available Tools
@@ -151,27 +154,60 @@ node index.js --base-url https://api.inaturalist.org/v1 --api-token your-token-h
 
 ### Environment Variables
 
-- `INATURALIST_API_TOKEN` - Your iNaturalist API token
 - `INATURALIST_BASE_URL` - API base URL (default: https://api.inaturalist.org/v1)
+- `INAT_CLIENT_ID` - iNaturalist OAuth client ID (Resource Owner Password Credentials Flow)
+- `INAT_CLIENT_SECRET` - iNaturalist OAuth client secret (Resource Owner Password Credentials Flow)
+- `INAT_USERNAME` - iNaturalist username (**REQUIRED** for Resource Owner Password Credentials Flow)
+- `INAT_PASSWORD` - iNaturalist password (**REQUIRED** for Resource Owner Password Credentials Flow)
 
 ### Command Line Options
 
-- `-t, --api-token <token>` - API token for authenticated requests
 - `-u, --base-url <url>` - Custom API base URL
+- `--client-id <id>` - iNaturalist OAuth client ID (Resource Owner Password Credentials Flow)
+- `--client-secret <secret>` - iNaturalist OAuth client secret (Resource Owner Password Credentials Flow)
+- `--username <username>` - iNaturalist username (**REQUIRED** for Resource Owner Password Credentials Flow)
+- `--password <password>` - iNaturalist password (**REQUIRED** for Resource Owner Password Credentials Flow)
 - `-h, --help` - Show help message
+
+### Authentication Methods
+
+1. **OAuth Credentials** - Full OAuth flow with client credentials and user authentication
+2. **No Authentication** - Read-only access to public data
+
+### Usage Examples
+
+```bash
+# Basic usage (read-only access)
+node dist/index.js
+
+# With OAuth credentials
+node dist/index.js --client-id your-client-id --client-secret your-client-secret --username your-username --password your-password
+
+# Using environment variables
+export INAT_CLIENT_ID=your-client-id
+export INAT_CLIENT_SECRET=your-client-secret
+export INAT_USERNAME=your-username
+export INAT_PASSWORD=your-password
+node dist/index.js
+```
 
 ## Claude Desktop Integration
 
 Add to your Claude Desktop configuration:
+
+### With OAuth Credentials
 
 ```json
 {
   "mcpServers": {
     "inaturalist": {
       "command": "node",
-      "args": ["/path/to/inat-mcp-server/index.js"],
+      "args": ["/path/to/inat-mcp-server/dist/index.js"],
       "env": {
-        "INATURALIST_API_TOKEN": "your-token-here"
+        "INAT_CLIENT_ID": "your-client-id",
+        "INAT_CLIENT_SECRET": "your-client-secret",
+        "INAT_USERNAME": "your-username",
+        "INAT_PASSWORD": "your-password"
       }
     }
   }
@@ -211,7 +247,7 @@ yarn validate
 
 ## Authentication
 
-The server supports optional authentication for enhanced access:
+The server **ONLY supports Resource Owner Password Credentials Flow** for OAuth authentication. Authorization Code Flow, PKCE, and Assertion Flow are **NOT supported**.
 
 ### Benefits of Authentication
 
@@ -220,12 +256,15 @@ The server supports optional authentication for enhanced access:
 - User-specific data and operations
 - Write operations (where supported by the SDK)
 
-### Getting an API Token
+### Getting OAuth Credentials
 
 1. Log in to iNaturalist
 2. Go to Account Settings → Applications
 3. Create a new application or use an existing one
-4. Copy your API token
+4. Copy your client ID and client secret
+5. Use your iNaturalist username and password for authentication
+
+**Important**: When using OAuth credentials, both username and password are **REQUIRED** to enforce Resource Owner Password Credentials Flow only. The server will reject configurations that attempt to use other OAuth flows.
 
 ## Rate Limits
 

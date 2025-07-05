@@ -47,9 +47,26 @@ class INaturalistMCPServer {
 
   ensureClient() {
     if (!this.client) {
+      // Validate that we only use Resource Owner Password Credentials Flow
+      if (this.config.clientId && this.config.clientSecret) {
+        // If OAuth credentials are provided, username and password are REQUIRED
+        // for Resource Owner Password Credentials Flow
+        if (!this.config.username || !this.config.password) {
+          throw new Error(
+            'Resource Owner Password Credentials Flow requires both username and password. ' +
+            'Authorization Code Flow, PKCE, and Assertion Flow are not supported.'
+          );
+        }
+      }
+      
       this.client = new INaturalistClient({
         baseURL: this.config.baseURL || 'https://api.inaturalist.org/v1',
-        apiToken: this.config.apiToken
+        clientId: this.config.clientId,
+        clientSecret: this.config.clientSecret,
+        username: this.config.username,
+        password: this.config.password,
+        // ENFORCE Resource Owner Password Credentials Flow ONLY
+        grantType: 'password'
       });
     }
     return this.client;
@@ -159,7 +176,17 @@ class INaturalistMCPServer {
     console.error('iNaturalist MCP server v0.1.0 started');
     console.error(\`Total tools: \${TOOLS.length} modules\`);
     console.error(\`Base URL: \${this.config.baseURL || 'https://api.inaturalist.org/v1'}\`);
-    console.error(\`Authentication: \${this.config.apiToken ? 'enabled' : 'disabled'}\`);
+    
+    // Show authentication status
+    if (this.config.clientId && this.config.clientSecret) {
+      console.error(\`Authentication: OAuth Resource Owner Password Credentials Flow (client_id: \${this.config.clientId})\`);
+      if (this.config.username) {
+        console.error(\`OAuth User: \${this.config.username}\`);
+      }
+      console.error('OAuth Flow: Resource Owner Password Credentials ONLY (Authorization Code, PKCE, and Assertion flows are disabled)');
+    } else {
+      console.error('Authentication: None (read-only access)');
+    }
   }
 }
 
@@ -168,7 +195,10 @@ function parseArgs() {
   const args = process.argv.slice(2);
   const config = {
     baseURL: 'https://api.inaturalist.org/v1',
-    apiToken: '',
+    clientId: '',
+    clientSecret: '',
+    username: '',
+    password: '',
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -177,9 +207,17 @@ function parseArgs() {
       case '-u':
         config.baseURL = args[++i];
         break;
-      case '--api-token':
-      case '-t':
-        config.apiToken = args[++i];
+      case '--client-id':
+        config.clientId = args[++i];
+        break;
+      case '--client-secret':
+        config.clientSecret = args[++i];
+        break;
+      case '--username':
+        config.username = args[++i];
+        break;
+      case '--password':
+        config.password = args[++i];
         break;
       case '--help':
       case '-h':
@@ -198,21 +236,37 @@ iNaturalist MCP Server v0.1.0
 
 Usage: inat-mcp-server [options]
 
+AUTHENTICATION: This server ONLY supports Resource Owner Password Credentials Flow.
+Authorization Code Flow, PKCE, and Assertion Flow are NOT supported.
+
 Options:
   -u, --base-url <url>      iNaturalist API base URL (default: https://api.inaturalist.org/v1)
-  -t, --api-token <token>   API token for authenticated requests (optional)
+  --client-id <id>          iNaturalist OAuth client ID (Resource Owner Password Credentials Flow)
+  --client-secret <secret>  iNaturalist OAuth client secret (Resource Owner Password Credentials Flow)
+  --username <username>     iNaturalist username (REQUIRED for Resource Owner Password Credentials Flow)
+  --password <password>     iNaturalist password (REQUIRED for Resource Owner Password Credentials Flow)
   -h, --help                Show this help message
 
 Environment Variables:
   INATURALIST_BASE_URL      iNaturalist API base URL
-  INATURALIST_API_TOKEN     API token for authenticated requests
+  INAT_CLIENT_ID            iNaturalist OAuth client ID (Resource Owner Password Credentials Flow)
+  INAT_CLIENT_SECRET        iNaturalist OAuth client secret (Resource Owner Password Credentials Flow)
+  INAT_USERNAME             iNaturalist username (REQUIRED for Resource Owner Password Credentials Flow)
+  INAT_PASSWORD             iNaturalist password (REQUIRED for Resource Owner Password Credentials Flow)
 
 Examples:
   # Basic usage (read-only access)
   inat-mcp-server
 
-  # With API token for authenticated requests
-  inat-mcp-server --api-token your-token-here
+  # With OAuth credentials for full access (Resource Owner Password Credentials Flow ONLY)
+  inat-mcp-server --client-id your-client-id --client-secret your-client-secret --username your-username --password your-password
+
+  # Using environment variables
+  export INAT_CLIENT_ID=your-client-id
+  export INAT_CLIENT_SECRET=your-client-secret
+  export INAT_USERNAME=your-username
+  export INAT_PASSWORD=your-password
+  inat-mcp-server
 
   # Custom API base URL
   inat-mcp-server --base-url https://api.inaturalist.org/v1
@@ -248,7 +302,10 @@ async function main() {
   
   // Use environment variables as fallback
   config.baseURL = config.baseURL || process.env.INATURALIST_BASE_URL || 'https://api.inaturalist.org/v1';
-  config.apiToken = config.apiToken || process.env.INATURALIST_API_TOKEN || '';
+  config.clientId = config.clientId || process.env.INAT_CLIENT_ID || '';
+  config.clientSecret = config.clientSecret || process.env.INAT_CLIENT_SECRET || '';
+  config.username = config.username || process.env.INAT_USERNAME || '';
+  config.password = config.password || process.env.INAT_PASSWORD || '';
 
   // Create and start server
   const server = new INaturalistMCPServer(config);
