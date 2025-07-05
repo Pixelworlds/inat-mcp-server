@@ -30,6 +30,12 @@ class INaturalistMCPServer {
   constructor(config) {
     this.config = config;
     this.client = null;
+    this.tokenCache = {
+      accessToken: null,
+      apiToken: null,
+      expiresAt: null,
+      lastRefresh: null
+    };
     this.server = new Server(
       {
         name: 'inat-mcp-server',
@@ -45,7 +51,7 @@ class INaturalistMCPServer {
     this.setupHandlers();
   }
 
-  ensureClient() {
+  async ensureClient() {
     if (!this.client) {
       // Validate that we only use Resource Owner Password Credentials Flow
       if (this.config.clientId && this.config.clientSecret) {
@@ -59,17 +65,137 @@ class INaturalistMCPServer {
         }
       }
       
+      // Create client with base configuration
       this.client = new INaturalistClient({
-        baseURL: this.config.baseURL || 'https://api.inaturalist.org/v1',
-        clientId: this.config.clientId,
-        clientSecret: this.config.clientSecret,
-        username: this.config.username,
-        password: this.config.password,
-        // ENFORCE Resource Owner Password Credentials Flow ONLY
-        grantType: 'password'
+        baseURL: this.config.baseURL || 'https://api.inaturalist.org/v1'
       });
+      
+      // Handle authentication and token management
+      await this.ensureAuthentication();
     }
     return this.client;
+  }
+
+  async ensureAuthentication() {
+    if (!this.config.clientId || !this.config.clientSecret) {
+      console.error('No OAuth credentials provided - using read-only access');
+      return;
+    }
+
+    try {
+      // Check if we have a valid cached token
+      if (this.isTokenValid()) {
+        console.error('Using cached access token');
+        this.client.setApiToken(this.tokenCache.accessToken);
+        return;
+      }
+
+      // Get new access token using Resource Owner Password Credentials Flow
+      console.error('Obtaining new access token...');
+      await this.refreshAccessToken();
+      
+    } catch (error) {
+      console.error('Authentication failed:', error.message);
+      console.error('Falling back to read-only access');
+    }
+  }
+
+  isTokenValid() {
+    if (!this.tokenCache.accessToken || !this.tokenCache.expiresAt) {
+      return false;
+    }
+    
+    // Check if token expires within the next 5 minutes (300 seconds)
+    const now = Date.now();
+    const expiresAt = this.tokenCache.expiresAt;
+    const bufferTime = 5 * 60 * 1000; // 5 minutes in milliseconds
+    
+    return now < (expiresAt - bufferTime);
+  }
+
+  async refreshAccessToken() {
+    try {
+      // Use OAuth Resource Owner Password Credentials Flow
+      const tokenResponse = await this.client.authentication.post_oauth_token({
+        grant_type: 'password',
+        client_id: this.config.clientId,
+        client_secret: this.config.clientSecret,
+        username: this.config.username,
+        password: this.config.password
+      });
+
+      if (tokenResponse.data && tokenResponse.data.access_token) {
+        const { access_token, expires_in, token_type } = tokenResponse.data;
+        
+        // Cache the token
+        this.tokenCache.accessToken = access_token;
+        this.tokenCache.expiresAt = Date.now() + (expires_in * 1000); // Convert seconds to milliseconds
+        this.tokenCache.lastRefresh = Date.now();
+        
+        // Set the token on the client
+        this.client.setApiToken(access_token);
+        
+        console.error(\`Access token obtained successfully (expires in \${expires_in} seconds)\`);
+        console.error(\`Token type: \${token_type || 'Bearer'}\`);
+        
+        // Also try to get API token for enhanced access
+        await this.getApiToken();
+        
+      } else {
+        throw new Error('No access token received in OAuth response');
+      }
+    } catch (error) {
+      console.error('Failed to refresh access token:', error.message);
+      throw error;
+    }
+  }
+
+  async getApiToken() {
+    try {
+      // Try to get a long-lived API token
+      const apiTokenResponse = await this.client.authentication.get_users_api_token();
+      
+      if (apiTokenResponse.data && apiTokenResponse.data.api_token) {
+        this.tokenCache.apiToken = apiTokenResponse.data.api_token;
+        console.error('API token obtained for enhanced access');
+      }
+    } catch (error) {
+      console.error('Could not obtain API token (access token will be used):', error.message);
+    }
+  }
+
+  async ensureValidToken() {
+    if (!this.config.clientId || !this.config.clientSecret) {
+      return; // No authentication configured
+    }
+
+    if (!this.isTokenValid()) {
+      console.error('Token expired or invalid, refreshing...');
+      await this.refreshAccessToken();
+    }
+  }
+
+  getTokenStatus() {
+    if (!this.tokenCache.accessToken) {
+      return 'No token cached';
+    }
+    
+    const now = Date.now();
+    const expiresAt = this.tokenCache.expiresAt;
+    const timeUntilExpiry = expiresAt - now;
+    
+    if (timeUntilExpiry <= 0) {
+      return 'Token expired';
+    }
+    
+    const minutes = Math.floor(timeUntilExpiry / (1000 * 60));
+    const hours = Math.floor(minutes / 60);
+    
+    if (hours > 0) {
+      return \`Token valid for \${hours}h \${minutes % 60}m\`;
+    } else {
+      return \`Token valid for \${minutes}m\`;
+    }
   }
 
   setupHandlers() {
@@ -131,7 +257,10 @@ class INaturalistMCPServer {
   }
 
   async callModularTool(tool, args) {
-    const client = this.ensureClient();
+    const client = await this.ensureClient();
+    
+    // Ensure we have a valid token before making the API call
+    await this.ensureValidToken();
     
     // Validate method parameter
     if (!args.method) {
@@ -184,6 +313,7 @@ class INaturalistMCPServer {
         console.error(\`OAuth User: \${this.config.username}\`);
       }
       console.error('OAuth Flow: Resource Owner Password Credentials ONLY (Authorization Code, PKCE, and Assertion flows are disabled)');
+      console.error('Token Management: Automatic caching and refresh enabled');
     } else {
       console.error('Authentication: None (read-only access)');
     }
@@ -238,6 +368,7 @@ Usage: inat-mcp-server [options]
 
 AUTHENTICATION: This server ONLY supports Resource Owner Password Credentials Flow.
 Authorization Code Flow, PKCE, and Assertion Flow are NOT supported.
+TOKEN MANAGEMENT: Access tokens are automatically cached and refreshed as needed.
 
 Options:
   -u, --base-url <url>      iNaturalist API base URL (default: https://api.inaturalist.org/v1)

@@ -10,7 +10,7 @@ A comprehensive Model Context Protocol (MCP) server providing access to the comp
 - **Geographic Filtering**: Bounding boxes, radius searches, place-based queries
 - **Taxonomic Search**: Species identification, hierarchical browsing, autocomplete
 - **Community Features**: Projects, users, comments, identifications, flags
-- **Authentication Support**: OAuth credentials for enhanced access
+- **Authentication Support**: OAuth credentials with automatic token caching and refresh
 - **Auto-Generated Tools**: Automatically introspects SDK modules to generate MCP tools
 
 ## Installation
@@ -266,12 +266,36 @@ The server **ONLY supports Resource Owner Password Credentials Flow** for OAuth 
 
 **Important**: When using OAuth credentials, both username and password are **REQUIRED** to enforce Resource Owner Password Credentials Flow only. The server will reject configurations that attempt to use other OAuth flows.
 
+**Token Management**: The server automatically caches access tokens and refreshes them as needed. Tokens are kept in memory and refreshed automatically before expiration, ensuring uninterrupted API access without repeated authentication.
+
 ## Rate Limits
 
 - **Unauthenticated**: 100 requests per hour
 - **Authenticated**: 10,000 requests per hour
 
 The server automatically includes proper headers and authentication to optimize rate limit usage.
+
+## Token Management
+
+The server includes sophisticated token management:
+
+### Automatic Token Caching
+
+- **Access Tokens**: Cached in memory after successful OAuth authentication
+- **API Tokens**: Long-lived tokens obtained when possible for enhanced access
+- **Expiration Tracking**: Monitors token expiry and refreshes automatically
+
+### Token Refresh Strategy
+
+- **Proactive Refresh**: Tokens are refreshed 5 minutes before expiration
+- **Automatic Retry**: Failed token refresh attempts fall back to read-only access
+- **Resource Owner Password Credentials Flow**: Only supported OAuth flow for security
+
+### Benefits
+
+- **Uninterrupted Access**: No authentication delays during API calls
+- **Rate Limit Optimization**: Maintains authenticated status for higher limits
+- **Error Recovery**: Graceful fallback to read-only mode if authentication fails
 
 ## Error Handling
 
