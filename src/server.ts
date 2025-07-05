@@ -11,68 +11,51 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { INaturalistClient } from '@richard-stovall/inat-typescript-client';
 
+import { INaturalistToolGeneratorV2 } from './generate-tools.js';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-interface ToolDefinition {
-  name: string;
-  description: string;
-  module: string;
-  methods: string[];
-  inputSchema: any;
-}
-
-interface ToolsData {
-  tools: ToolDefinition[];
-  methodDocs: Record<string, any>;
-  totalTools: number;
-}
-
-interface TokenCache {
-  accessToken: string | null;
-  apiToken: string | null;
-  expiresAt: number | null;
-  lastRefresh: number | null;
+interface AuthConfig {
+  clientId: string;
+  clientSecret: string;
+  username: string;
+  password: string;
+  baseURL?: string;
 }
 
 interface UserInfo {
   id: number;
   login: string;
-  name: string | null;
-  email: string | null;
+  name?: string;
+  email?: string;
   observations_count: number;
   identifications_count: number;
   journal_posts_count: number;
+  species_count: number;
   roles: string[];
 }
 
-interface ServerConfig {
-  baseURL: string;
-  clientId: string;
-  clientSecret: string;
-  username: string;
-  password: string;
+interface AuthTokens {
+  accessToken?: string;
+  apiToken?: string;
+  expiresAt?: Date;
 }
 
 class INaturalistMCPServer {
-  private config: ServerConfig;
-  private client: INaturalistClient | null = null;
-  private tokenCache: TokenCache = {
-    accessToken: null,
-    apiToken: null,
-    expiresAt: null,
-    lastRefresh: null,
-  };
-  private userInfo: UserInfo | null = null;
   private server: Server;
-  private tools: ToolDefinition[] = [];
-  private methodDocs: Record<string, any> = {};
+  private client: INaturalistClient;
+  private oauthClient: INaturalistClient;
+  private config: AuthConfig | null = null;
+  private tokens: AuthTokens = {};
+  private userInfo: UserInfo | null = null;
+  private generator: INaturalistToolGeneratorV2;
+  private isAuthenticated = false;
 
-  constructor(config: ServerConfig) {
-    this.config = config;
+  constructor() {
     this.server = new Server(
       {
         name: 'inaturalist',
-        version: '0.1.0',
+        version: '2.0.0',
       },
       {
         capabilities: {
@@ -83,103 +66,109 @@ class INaturalistMCPServer {
       }
     );
 
-    this.loadTools();
+    // Initialize clients
+    this.client = new INaturalistClient({
+      baseURL: 'https://api.inaturalist.org/v1',
+    });
+    this.oauthClient = new INaturalistClient({
+      baseURL: 'https://www.inaturalist.org',
+    });
+
+    this.generator = new INaturalistToolGeneratorV2();
     this.setupHandlers();
   }
 
-  private loadTools(): void {
-    try {
-      const toolsPath = path.join(__dirname, 'tools-generated.json');
-      const toolsData: ToolsData = JSON.parse(fs.readFileSync(toolsPath, 'utf8'));
-      this.tools = toolsData.tools;
-      this.methodDocs = toolsData.methodDocs;
-    } catch (error) {
-      console.error('Failed to load tools:', error);
-      throw new Error('Tools not found. Run yarn generate-tools first.');
-    }
-  }
-
-  async ensureClient(): Promise<INaturalistClient> {
-    if (!this.client) {
-      console.error('Creating new iNaturalist client...');
-      //
-      if (this.config.clientId && this.config.clientSecret) {
-        if (!this.config.username || !this.config.password) {
-          throw new Error(
-            'Resource Owner Password Credentials Flow requires both username and password. ' +
-              'Authorization Code Flow, PKCE, and Assertion Flow are not supported.'
-          );
-        }
-      }
-
-      this.client = new INaturalistClient({
-        baseURL: this.config.baseURL || 'https://api.inaturalist.org/v1',
-      });
-
-      console.error('Client created, starting authentication...');
-      await this.ensureAuthentication();
-    }
-    return this.client;
-  }
-
-  private async ensureAuthentication(): Promise<void> {
-    console.error('ensureAuthentication called');
-    console.error('Config:', {
-      hasClientId: !!this.config.clientId,
-      hasClientSecret: !!this.config.clientSecret,
-      hasUsername: !!this.config.username,
-      hasPassword: !!this.config.password,
+  private setupHandlers = (): void => {
+    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+      const toolsData = this.loadToolsData();
+      return { tools: toolsData.tools };
     });
 
-    if (!this.config.clientId || !this.config.clientSecret) {
-      console.error('No OAuth credentials provided - using read-only access');
-      return;
+    this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
+      const resourcesData = this.loadResourcesData();
+      return { resources: resourcesData.resources };
+    });
+
+    this.server.setRequestHandler(ListPromptsRequestSchema, async () => {
+      const promptsData = this.loadPromptsData();
+      return { prompts: promptsData.prompts };
+    });
+
+    this.server.setRequestHandler(CallToolRequestSchema, async request => {
+      const { name, arguments: args } = request.params;
+      return await this.handleToolCall(name, args || {});
+    });
+
+    this.server.setRequestHandler(ReadResourceRequestSchema, async request => {
+      const { uri } = request.params;
+      return await this.handleResourceRead(uri);
+    });
+
+    this.server.setRequestHandler(GetPromptRequestSchema, async request => {
+      const { name, arguments: args } = request.params;
+      return await this.handlePrompt(name, args || {});
+    });
+  };
+
+  private ensureGeneratedFiles = (): void => {
+    const projectRoot = path.join(__dirname, '..');
+    const distDir = path.join(projectRoot, 'dist');
+    const toolsPath = path.join(distDir, 'tools-generated.json');
+
+    // Check if generated files exist, if not generate them
+    if (!fs.existsSync(toolsPath)) {
+      console.error('📁 Generated files not found, creating them...');
+      this.generator.generateAll(projectRoot);
     }
+  };
 
+  private loadToolsData = (): any => {
+    this.ensureGeneratedFiles();
     try {
-      if (this.isTokenValid() && this.tokenCache.accessToken && this.tokenCache.apiToken) {
-        console.error('Using cached tokens (both access_token and api_token available)');
-        // Don't set a specific token here - we'll handle it per request
-        return;
-      }
-
-      console.error('Obtaining new tokens...');
-      await this.refreshAccessToken();
+      const projectRoot = path.join(__dirname, '..');
+      const toolsPath = path.join(projectRoot, 'dist', 'tools-generated.json');
+      return JSON.parse(fs.readFileSync(toolsPath, 'utf8'));
     } catch (error) {
-      console.error('Authentication failed:', (error as Error).message);
-      console.error('Falling back to read-only access');
+      console.error('Failed to load tools data, generating from generator:', error);
+      return this.generator.generateToolsJson();
     }
-  }
+  };
 
-  private isTokenValid(): boolean {
-    if (!this.tokenCache.accessToken || !this.tokenCache.expiresAt) {
-      return false;
-    }
-
-    const now = Date.now();
-    const expiresAt = this.tokenCache.expiresAt;
-    const bufferTime = 5 * 60 * 1000;
-
-    return now < expiresAt - bufferTime;
-  }
-
-  private async refreshAccessToken(): Promise<void> {
+  private loadResourcesData = (): any => {
+    this.ensureGeneratedFiles();
     try {
-      // Create a separate client for OAuth with the main iNaturalist site
-      const oauthClient = new INaturalistClient({
-        baseURL: 'https://www.inaturalist.org',
-      });
+      const projectRoot = path.join(__dirname, '..');
+      const resourcesPath = path.join(projectRoot, 'dist', 'resources-generated.json');
+      return JSON.parse(fs.readFileSync(resourcesPath, 'utf8'));
+    } catch (error) {
+      console.error('Failed to load resources data, generating from generator:', error);
+      return this.generator.generateResourcesJson();
+    }
+  };
 
-      console.error('Attempting OAuth authentication with:', {
-        baseURL: 'https://www.inaturalist.org',
-        endpoint: '/oauth/token',
-        grant_type: 'password',
-        client_id: this.config.clientId,
-        username: this.config.username,
-        // Don't log password or client_secret
-      });
+  private loadPromptsData = (): any => {
+    this.ensureGeneratedFiles();
+    try {
+      const projectRoot = path.join(__dirname, '..');
+      const promptsPath = path.join(projectRoot, 'dist', 'prompts-generated.json');
+      return JSON.parse(fs.readFileSync(promptsPath, 'utf8'));
+    } catch (error) {
+      console.error('Failed to load prompts data, generating from generator:', error);
+      return this.generator.generatePromptsJson();
+    }
+  };
 
-      const tokenResponse = await oauthClient.authentication.post_oauth_token({
+  private authenticateWithCredentials = async (): Promise<void> => {
+    if (!this.config) {
+      throw new Error('No authentication configuration provided');
+    }
+
+    console.error('🔐 Starting authentication flow...');
+
+    try {
+      // Step 1: Get access token using Resource Owner Password Credentials Flow
+      console.error('📡 Step 1: Requesting access token...');
+      const tokenResponse = await this.oauthClient.oauth.oauth_token_exchange({
         grant_type: 'password',
         client_id: this.config.clientId,
         client_secret: this.config.clientSecret,
@@ -187,813 +176,723 @@ class INaturalistMCPServer {
         password: this.config.password,
       });
 
-      if (tokenResponse.data && tokenResponse.data.access_token) {
-        const { access_token, expires_in, token_type } = tokenResponse.data;
-
-        this.tokenCache.accessToken = access_token;
-        this.tokenCache.expiresAt = Date.now() + expires_in * 1000;
-        this.tokenCache.lastRefresh = Date.now();
-
-        // Set the access token on the client BEFORE calling get_users_api_token
-        this.client!.setApiToken(access_token);
-
-        console.error(`Access token obtained successfully (expires in ${expires_in} seconds)`);
-        console.error(`Token type: ${token_type || 'Bearer'}`);
-
-        // Now get the API token using the access token
-        await this.getApiToken();
-      } else {
-        throw new Error('No access token received in OAuth response');
+      if (!tokenResponse.data?.access_token) {
+        throw new Error('Failed to obtain access token from OAuth response');
       }
+
+      this.tokens.accessToken = tokenResponse.data.access_token;
+      this.tokens.expiresAt = new Date(Date.now() + (tokenResponse.data.expires_in || 3600) * 1000);
+      console.error(`✅ Access token obtained (expires: ${this.tokens.expiresAt.toISOString()})`);
+
+      // Step 2: Get API token using the access token
+      console.error('📡 Step 2: Requesting API token...');
+
+      // Create authenticated client for API token request (use main site, not API subdomain)
+      const authClient = new INaturalistClient('https://www.inaturalist.org', this.tokens.accessToken);
+
+      const apiTokenResponse = await authClient.users.get_jwt_api_token();
+
+      if (!apiTokenResponse.data?.api_token) {
+        throw new Error('Failed to obtain API token from users/api_token response');
+      }
+
+      this.tokens.apiToken = apiTokenResponse.data.api_token;
+      console.error('✅ API token obtained');
+
+      // Step 3: Configure main client with API token
+      this.client = new INaturalistClient('https://api.inaturalist.org/v1', this.tokens.apiToken);
+
+      // Step 4: Preload user information
+      console.error('📡 Step 3: Loading user information...');
+      await this.loadUserInfo();
+
+      this.isAuthenticated = true;
+      console.error(`🎉 Authentication complete! Logged in as: ${this.userInfo?.login} (ID: ${this.userInfo?.id})`);
     } catch (error) {
-      console.error('Failed to refresh access token:', (error as Error).message);
-      if ((error as any).response) {
-        const response = (error as any).response;
-        console.error('OAuth error response:', {
-          status: response.status,
-          statusText: response.statusText,
-          data: response.data,
-          url: response.config?.url,
-        });
-      }
+      console.error('❌ Authentication failed:', error instanceof Error ? error.message : 'Unknown error');
       throw error;
     }
-  }
+  };
 
-  private async getApiToken(): Promise<void> {
+  private loadUserInfo = async (): Promise<void> => {
     try {
-      const apiTokenResponse = await this.client!.authentication.get_users_api_token();
+      const userResponse = await this.client.users.users_me();
 
-      if (apiTokenResponse.data && apiTokenResponse.data.api_token) {
-        this.tokenCache.apiToken = apiTokenResponse.data.api_token;
-        console.error('API token obtained successfully');
-        console.error('Both tokens now available for different API endpoints');
-
-        // Fetch user info after successful authentication
-        await this.fetchUserInfo();
-      }
-    } catch (error) {
-      console.error('Could not obtain API token (access token will be used):', (error as Error).message);
-    }
-  }
-
-  private async fetchUserInfo(): Promise<void> {
-    try {
-      // Use the users module to get current user info
-      const userResponse = await this.client!.users.get_users_edit();
-
-      if (userResponse.data && userResponse.data.results && userResponse.data.results.length > 0) {
+      if (userResponse.data?.results?.[0]) {
         const user = userResponse.data.results[0];
         this.userInfo = {
           id: user.id,
           login: user.login,
-          name: user.name || null,
-          email: user.email || null,
+          name: user.name || undefined,
+          email: user.email || undefined,
           observations_count: user.observations_count || 0,
           identifications_count: user.identifications_count || 0,
           journal_posts_count: user.journal_posts_count || 0,
+          species_count: user.species_count || 0,
           roles: user.roles || [],
         };
-        console.error(`Authenticated as user: ${this.userInfo.login} (ID: ${this.userInfo.id})`);
+        console.error(
+          `👤 User loaded: ${this.userInfo.login} (${this.userInfo.observations_count} observations, ${this.userInfo.species_count} species)`
+        );
+      } else {
+        throw new Error('Invalid user response format');
       }
     } catch (error) {
-      console.error('Could not fetch user info:', (error as Error).message);
-      // Fall back to using username from config
-      if (this.config.username) {
-        this.userInfo = {
-          id: 0,
-          login: this.config.username,
-          name: null,
-          email: null,
-          observations_count: 0,
-          identifications_count: 0,
-          journal_posts_count: 0,
-          roles: [],
-        };
-      }
+      console.error('⚠️  Failed to load user info:', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
     }
-  }
+  };
 
-  private async ensureValidToken(): Promise<void> {
-    if (!this.config.clientId || !this.config.clientSecret) {
-      return;
-    }
-
-    if (!this.isTokenValid()) {
-      console.error('Token expired or invalid, refreshing...');
-      await this.refreshAccessToken();
-    }
-  }
-
-  private getTokenStatus(): string {
-    if (!this.tokenCache.accessToken) {
-      return 'No token cached';
-    }
-
-    const now = Date.now();
-    const expiresAt = this.tokenCache.expiresAt!;
-    const timeUntilExpiry = expiresAt - now;
-
-    if (timeUntilExpiry <= 0) {
-      return 'Token expired';
-    }
-
-    const minutes = Math.floor(timeUntilExpiry / (1000 * 60));
-    const hours = Math.floor(minutes / 60);
-
-    if (hours > 0) {
-      return `Token valid for ${hours}h ${minutes % 60}m`;
-    } else {
-      return `Token valid for ${minutes}m`;
-    }
-  }
-
-  private setAppropriateToken(module: string, method: string): void {
-    // Some API endpoints require access_token, others require api_token
-    // For now, we'll use api_token as the default since it has more permissions
-    // You may need to adjust this based on specific endpoint requirements
-    if (this.tokenCache.apiToken) {
-      this.client!.setApiToken(this.tokenCache.apiToken);
-      console.error(`Using api_token for ${module}.${method}`);
-    } else if (this.tokenCache.accessToken) {
-      this.client!.setApiToken(this.tokenCache.accessToken);
-      console.error(`Using access_token for ${module}.${method}`);
-    }
-  }
-
-  private setupHandlers(): void {
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: this.getAvailableTools(),
-    }));
-
-    this.server.setRequestHandler(ListResourcesRequestSchema, async () => ({
-      resources: this.getAvailableResources(),
-    }));
-
-    this.server.setRequestHandler(ReadResourceRequestSchema, async request => {
-      const { uri } = request.params;
-      return this.readResource(uri);
-    });
-
-    this.server.setRequestHandler(ListPromptsRequestSchema, async () => ({
-      prompts: this.getAvailablePrompts(),
-    }));
-
-    this.server.setRequestHandler(GetPromptRequestSchema, async request => {
-      const { name } = request.params;
-      return this.getPrompt(name);
-    });
-
-    this.server.setRequestHandler(CallToolRequestSchema, async request => {
-      const { name, arguments: args } = request.params;
-      const tool = this.tools.find(t => t.name === name);
-
-      if (!tool) {
-        throw new McpError(ErrorCode.MethodNotFound, `Tool ${name} not found`);
+  private handleToolCall = async (toolName: string, args: any): Promise<any> => {
+    try {
+      // Validate authentication for tools that require it
+      if (!this.isAuthenticated && this.requiresAuthentication(toolName, args.method)) {
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          `Authentication required for ${toolName}.${args.method}. Please provide valid credentials.`
+        );
       }
 
-      try {
-        const result = await this.callModularTool(tool, args || {});
+      const categoryInfo = this.generator.getCategoryInfo(toolName);
+      if (!categoryInfo) {
+        throw new McpError(ErrorCode.InvalidRequest, `Unknown tool: ${toolName}`);
+      }
 
-        return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-        };
-      } catch (error) {
-        const errorInfo: any = {
-          tool: tool.name,
-          module: tool.module,
-          method: (args && args.method) || 'unknown',
-          error: error instanceof Error ? error.message : 'Unknown error',
-        };
+      const { method, parameters = {} } = args;
+      if (!method) {
+        throw new McpError(ErrorCode.InvalidRequest, 'Method parameter is required');
+      }
 
-        if ((error as any).response) {
-          const response = (error as any).response;
-          errorInfo.httpStatus = response.status;
-          errorInfo.httpStatusText = response.statusText;
-        }
+      const methodInfo = categoryInfo.methods.find(m => m.name === method);
+      if (!methodInfo) {
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          `Unknown method '${method}' for tool '${toolName}'. Available methods: ${categoryInfo.methods
+            .map(m => m.name)
+            .join(', ')}`
+        );
+      }
 
-        console.error('Tool call error:', errorInfo);
+      console.error(`🔧 Calling ${toolName}.${method} with params:`, parameters);
 
-        let errorMessage = 'Unknown error';
-        if (error instanceof Error) {
-          errorMessage = error.message;
-          if ((error as any).response) {
-            const response = (error as any).response;
-            errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-            if (response.data) {
-              try {
-                errorMessage += `\nResponse: ${JSON.stringify(response.data, null, 2)}`;
-              } catch (jsonError) {
-                errorMessage += `\nResponse: [Unable to serialize response data]`;
-              }
-            }
-          }
-        }
+      // Get the appropriate module
+      const module = (this.client as any)[toolName];
+      if (!module) {
+        throw new McpError(ErrorCode.InternalError, `Module '${toolName}' not found in client`);
+      }
 
+      // Get the method function
+      const methodFn = module[method];
+      if (typeof methodFn !== 'function') {
+        throw new McpError(ErrorCode.InternalError, `Method '${method}' not found in module '${toolName}'`);
+      }
+
+      // Call the method
+      let result;
+      if (Object.keys(parameters).length > 0) {
+        result = await methodFn.call(module, parameters);
+      } else {
+        result = await methodFn.call(module);
+      }
+
+      // Return clean data
+      if (result && typeof result === 'object' && result.data) {
         return {
           content: [
             {
               type: 'text',
-              text: `Error calling ${tool.name}.${(args && args.method) || 'unknown'}: ${errorMessage}`,
+              text: JSON.stringify(result.data, null, 2),
             },
           ],
         };
       }
-    });
-  }
 
-  private getAvailableTools() {
-    return this.tools.map(tool => ({
-      name: tool.name,
-      description: tool.description,
-      inputSchema: tool.inputSchema,
-    }));
-  }
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      const errorInfo: any = {
+        tool: toolName,
+        method: args.method || 'unknown',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
 
-  private getAvailableResources() {
-    const resources = [
-      {
-        uri: 'inaturalist://categories',
-        name: 'iNaturalist API Categories',
-        description: 'Overview of all available API modules and their purposes',
-        mimeType: 'text/markdown',
-      },
-      {
-        uri: 'inaturalist://examples',
-        name: 'Usage Examples',
-        description: 'Common usage patterns and example requests for iNaturalist API',
-        mimeType: 'text/markdown',
-      },
+      if ((error as any).response) {
+        const response = (error as any).response;
+        errorInfo.httpStatus = response.status;
+        errorInfo.httpStatusText = response.statusText;
+      }
+
+      console.error('Tool call error:', errorInfo);
+
+      let errorMessage = 'Unknown error';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+        if ((error as any).response) {
+          const response = (error as any).response;
+          errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+          if (response.data) {
+            try {
+              errorMessage += `\nResponse: ${JSON.stringify(response.data, null, 2)}`;
+            } catch (jsonError) {
+              errorMessage += `\nResponse: ${String(response.data)}`;
+            }
+          }
+        }
+      }
+
+      throw new McpError(ErrorCode.InternalError, `Error calling ${toolName}.${args.method}: ${errorMessage}`);
+    }
+  };
+
+  private requiresAuthentication = (toolName: string, method: string): boolean => {
+    // Methods that require authentication
+    const authRequiredMethods = [
+      'observation_create',
+      'observation_update',
+      'observation_delete',
+      'observations_fave',
+      'observations_unfave',
+      'identification_create',
+      'identification_update',
+      'identification_delete',
+      'comment_create',
+      'comment_update',
+      'comment_delete',
+      'projects_join',
+      'projects_leave',
+      'project_add',
+      'project_remove',
+      'user_update',
+      'users_me',
+      'flag_create',
+      'flag_update',
+      'flag_delete',
     ];
 
-    // Add user resource if authenticated
-    if (this.userInfo) {
-      resources.unshift({
-        uri: 'inaturalist://user',
-        name: 'Current User Info',
-        description: `Authenticated as ${this.userInfo.login}`,
-        mimeType: 'application/json',
-      });
-    }
+    return authRequiredMethods.includes(method);
+  };
 
-    // Add individual module resources
-    const moduleNames = [...new Set(this.tools.map(t => t.module))];
-    moduleNames.forEach(module => {
-      resources.push({
-        uri: `inaturalist://module/${module}`,
-        name: `${module} Module Documentation`,
-        description: `Detailed documentation for ${module} endpoints`,
-        mimeType: 'text/markdown',
-      });
-    });
-
-    return resources;
-  }
-
-  private async readResource(uri: string) {
-    if (uri === 'inaturalist://user') {
-      return {
-        contents: [
-          {
-            uri,
-            mimeType: 'application/json',
-            text: JSON.stringify(this.userInfo || { error: 'Not authenticated' }, null, 2),
-          },
-        ],
-      };
-    }
-
-    if (uri === 'inaturalist://categories') {
+  private handleResourceRead = async (uri: string): Promise<any> => {
+    if (uri.startsWith('inaturalist://docs/')) {
+      const docPath = uri.replace('inaturalist://docs/', '');
       return {
         contents: [
           {
             uri,
             mimeType: 'text/markdown',
-            text: this.generateCategoriesDoc(),
+            text: this.generateDocumentation(docPath),
           },
         ],
       };
     }
 
-    if (uri === 'inaturalist://examples') {
-      return {
-        contents: [
-          {
-            uri,
-            mimeType: 'text/markdown',
-            text: this.generateExamplesDoc(),
-          },
-        ],
-      };
+    throw new McpError(ErrorCode.InvalidRequest, `Unknown resource URI: ${uri}`);
+  };
+
+  private generateDocumentation = (docPath: string): string => {
+    if (docPath === 'overview') {
+      return this.generateOverviewDoc();
     }
 
-    const moduleMatch = uri.match(/^inaturalist:\/\/module\/(.+)$/);
-    if (moduleMatch) {
-      const moduleName = moduleMatch[1];
-      if (!moduleName) {
-        throw new McpError(ErrorCode.InvalidRequest, `Invalid module URI: ${uri}`);
-      }
-      return {
-        contents: [
-          {
-            uri,
-            mimeType: 'text/markdown',
-            text: this.generateModuleDoc(moduleName),
-          },
-        ],
-      };
+    if (docPath === 'authentication') {
+      return this.generateAuthDoc();
     }
 
-    throw new McpError(ErrorCode.InvalidRequest, `Unknown resource: ${uri}`);
-  }
-
-  private async callModularTool(tool: ToolDefinition, args: any = {}) {
-    const client = await this.ensureClient();
-
-    await this.ensureValidToken();
-
-    if (!args.method) {
-      throw new Error(`Missing required parameter 'method'. Available methods: ${tool.methods.join(', ')}`);
+    if (docPath === 'examples') {
+      return this.generateExamplesDoc();
     }
 
-    if (!tool.methods.includes(args.method)) {
-      throw new Error(`Invalid method '${args.method}'. Available methods: ${tool.methods.join(', ')}`);
+    const parts = docPath.split('/');
+    if (parts.length === 1 && parts[0]) {
+      // Category documentation
+      return this.generateCategoryDoc(parts[0]);
+    } else if (parts.length === 2 && parts[0] && parts[1]) {
+      // Method documentation
+      return this.generateMethodDoc(parts[0], parts[1]);
     }
 
-    // Set the appropriate token based on the module and method being called
-    this.setAppropriateToken(tool.module, args.method);
+    return `# Documentation\n\nDocumentation for ${docPath} is not available.`;
+  };
 
-    const moduleObj = (client as any)[tool.module];
+  private generateOverviewDoc = (): string => {
+    const categories = this.generator.getAllCategories();
+    const categoryList = Array.from(categories.entries())
+      .map(([name, info]) => `- **${name}**: ${info.description}`)
+      .join('\n');
 
-    if (!moduleObj) {
-      throw new Error(`Module ${tool.module} not found`);
-    }
+    return `# iNaturalist API Overview
 
-    const method = moduleObj[args.method];
-    if (!method || typeof method !== 'function') {
-      throw new Error(`Method ${args.method} not found in module ${tool.module}`);
-    }
+The iNaturalist MCP Server provides access to the comprehensive iNaturalist API, enabling you to interact with one of the world's largest citizen science platforms for biodiversity observation and identification.
 
-    console.error(`Calling ${tool.module}.${args.method} with params:`, args.params);
+## Available Categories
 
-    const { method: _, params = {}, ...otherArgs } = args;
-    const callParams = { ...params, ...otherArgs };
+${categoryList}
 
-    let result;
-    if (Object.keys(callParams).length > 0) {
-      result = await method.call(moduleObj, callParams);
-    } else {
-      result = await method.call(moduleObj);
-    }
+## Authentication
 
-    // Return only the data portion to avoid circular references
-    if (result && typeof result === 'object' && result.data) {
-      return result.data;
-    }
+This server automatically handles authentication using OAuth 2.0 Resource Owner Password Credentials Flow. When configured with valid credentials, it:
 
-    return result;
-  }
+1. Obtains an access token using your username/password
+2. Exchanges the access token for an API token
+3. Preloads your user information
+4. Uses the API token for all subsequent requests
 
-  private generateCategoriesDoc(): string {
-    const userSection = this.userInfo
-      ? `## 🧑 Authenticated User\n\n**${this.userInfo.login}** (ID: ${this.userInfo.id})\n- Observations: ${this.userInfo.observations_count}\n- Identifications: ${this.userInfo.identifications_count}\n- Journal Posts: ${this.userInfo.journal_posts_count}\n\n`
-      : '## 🔐 Authentication Status\n\nNot authenticated - using read-only access\n\n';
+## Data Quality
 
-    const modules = [...new Set(this.tools.map(t => t.module))].sort();
-    const categoriesDoc = `# iNaturalist API Categories
+iNaturalist observations have three quality grades:
+- **Research Grade**: Observations with community agreement on identification and metadata
+- **Needs ID**: Observations that need community input for identification
+- **Casual**: Observations that don't meet research grade criteria
 
-${userSection}## 📚 Available Modules
+## Getting Started
 
-${modules
-  .map(module => {
-    const tool = this.tools.find(t => t.module === module)!;
-    const methodCount = tool.methods.length;
-    const moduleName = module.replace(/_/g, ' ');
+Use the available tools to:
+1. Search for observations in your area
+2. Explore species information and taxonomy
+3. Join citizen science projects
+4. Contribute identifications to help the community
+5. Track biodiversity trends over time
 
-    // Module descriptions
-    const descriptions: Record<string, string> = {
-      observations: 'Core observation data - the heart of iNaturalist',
-      taxa: 'Species and taxonomic hierarchy information',
-      identifications: 'Community identifications and ID suggestions',
-      users: 'User profiles and account information',
-      projects: 'Community science projects and collections',
-      places: 'Geographic locations and boundaries',
-      search: 'Universal search across all content types',
-      comments: 'Discussions and community interactions',
-      flags: 'Content moderation and quality control',
-      annotations: 'Structured observation attributes',
-      controlled_terms: 'Standardized vocabulary for annotations',
-      observation_fields: 'Custom data fields for observations',
-      observation_field_values: 'Values for custom observation fields',
-      project_observations: 'Links between observations and projects',
-      observation_photos: 'Photo management for observations',
-      authentication: 'OAuth and API authentication',
-    };
+For detailed information about each tool and method, see the category-specific documentation.`;
+  };
 
-    return `### ${moduleName.charAt(0).toUpperCase() + moduleName.slice(1)}
-- **Module**: \`${module}\`
-- **Tool**: \`${tool.name}\`
-- **Methods**: ${methodCount} available
-- **Purpose**: ${descriptions[module] || tool.description}
+  private generateAuthDoc = (): string => {
+    return `# Authentication Guide
 
-`;
-  })
-  .join('')}
+## Overview
 
-## 🚀 Quick Start
+The iNaturalist MCP Server uses OAuth 2.0 Resource Owner Password Credentials Flow for authentication. This process is handled automatically when you provide valid credentials.
 
-To use any module, call the corresponding tool with:
-- \`method\`: The specific endpoint to call
-- \`params\`: Parameters for that endpoint
+## Authentication Flow
 
-Example:
-\`\`\`json
-{
-  "tool": "observations_manage",
-  "method": "get_observations",
-  "params": {
-    "q": "butterfly",
-    "place_id": "1",
-    "per_page": 10
-  }
+1. **Access Token Request**: Server exchanges your username/password for an access token
+2. **API Token Request**: Server uses the access token to obtain a permanent API token
+3. **User Info Loading**: Server preloads your user information for context
+
+## Required Credentials
+
+- **Client ID**: Your iNaturalist application client ID
+- **Client Secret**: Your iNaturalist application client secret
+- **Username**: Your iNaturalist username
+- **Password**: Your iNaturalist password
+
+## Authentication Status
+
+${
+  this.isAuthenticated
+    ? `✅ **Authenticated** as ${this.userInfo?.login} (ID: ${this.userInfo?.id})
+- Observations: ${this.userInfo?.observations_count}
+- Identifications: ${this.userInfo?.identifications_count}
+- Species: ${this.userInfo?.species_count}`
+    : `❌ **Not Authenticated** - Running in read-only mode`
 }
-\`\`\`
 
-For detailed documentation on each module, see the individual module resources.`;
+## Read-Only vs Authenticated Mode
 
-    return categoriesDoc;
-  }
+**Read-Only Mode** (no credentials):
+- Search observations, taxa, places, projects
+- View public user profiles
+- Access all public data
 
-  private generateModuleDoc(moduleName: string): string {
-    const tool = this.tools.find(t => t.module === moduleName);
-    if (!tool) {
-      return `# Module Not Found\n\nNo module named '${moduleName}' exists.`;
-    }
+**Authenticated Mode** (with credentials):
+- All read-only functionality
+- Create/update/delete your observations
+- Add identifications and comments
+- Join/leave projects
+- Update your profile
+- Access private data
 
-    const moduleTitle = moduleName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+## Security Notes
 
-    let doc = `# ${moduleTitle} Module
+- Credentials are only used during initialization
+- API tokens are stored in memory only
+- No credentials are logged or persisted to disk`;
+  };
 
-**Tool Name**: \`${tool.name}\`
-**Available Methods**: ${tool.methods.length}
+  private generateExamplesDoc = (): string => {
+    return `# Usage Examples
 
-## Description
+## Common Patterns
 
-${tool.description}
+### 1. Exploring Local Wildlife
 
-## Available Methods
-
-`;
-
-    tool.methods.forEach(method => {
-      const methodDoc = this.methodDocs[`${moduleName}.${method}`] || {};
-      const description = methodDoc.description || `Execute ${method} operation`;
-
-      doc += `### \`${method}\`
-
-${description}
-
-`;
-
-      // Add parameter information if available
-      if (methodDoc.parameters) {
-        doc += '**Parameters**:\n';
-        Object.entries(methodDoc.parameters).forEach(([param, info]: [string, any]) => {
-          doc += `- \`${param}\`: ${info.description || 'No description'}\n`;
-        });
-        doc += '\n';
-      }
-
-      // Add example if available
-      if (methodDoc.example) {
-        doc += `**Example**:
-\`\`\`json
-${JSON.stringify(methodDoc.example, null, 2)}
-\`\`\`
-
-`;
-      }
-    });
-
-    // Add common parameters section
-    doc += `## Common Parameters
-
-Most methods support these parameters:
-
-- \`q\`: Search query string
-- \`per_page\`: Results per page (max 200, default 30)
-- \`page\`: Page number for pagination
-- \`order\`: Sort order (asc/desc)
-- \`order_by\`: Field to sort by
-- \`locale\`: Language for localized content
-
-### Geographic Filters
-- \`place_id\`: Filter by place ID
-- \`lat\`, \`lng\`, \`radius\`: Point radius search
-- \`swlat\`, \`swlng\`, \`nelat\`, \`nelng\`: Bounding box search
-
-### Temporal Filters
-- \`created_after\`, \`created_before\`: Filter by creation date
-- \`observed_after\`, \`observed_before\`: Filter by observation date
-- \`updated_after\`, \`updated_before\`: Filter by update date
-
-### User Filters
-- \`user_id\`: Filter by user ID
-- \`user_login\`: Filter by username
-`;
-
-    return doc;
-  }
-
-  private generateExamplesDoc(): string {
-    const userNote = this.userInfo
-      ? `**Note**: You are authenticated as **${this.userInfo.login}**, so you can perform both read and write operations.\n\n`
-      : '**Note**: You are not authenticated, so only read operations will work.\n\n';
-
-    return `# iNaturalist API Usage Examples
-
-${userNote}## Common Use Cases
-
-### 1. Search for Observations
-
-Find butterfly observations in California:
 \`\`\`json
 {
-  "tool": "observations_manage",
-  "method": "get_observations",
-  "params": {
-    "q": "butterfly",
-    "place_id": "14",
+  "tool": "observations",
+  "method": "observation_search",
+  "parameters": {
+    "place_id": 97394,
     "quality_grade": "research",
-    "per_page": 20
-  }
-}
-\`\`\`
-
-### 2. Get Species Information
-
-Look up information about a specific taxon:
-\`\`\`json
-{
-  "tool": "taxa_manage",
-  "method": "get_taxa",
-  "params": {
-    "q": "Danaus plexippus",
-    "rank": "species"
-  }
-}
-\`\`\`
-
-### 3. Search Projects
-
-Find citizen science projects about birds:
-\`\`\`json
-{
-  "tool": "projects_manage",
-  "method": "get_projects",
-  "params": {
-    "q": "bird",
-    "type": "collection",
-    "per_page": 10
-  }
-}
-\`\`\`
-
-### 4. Get User Observations
-
-Get observations by a specific user:
-\`\`\`json
-{
-  "tool": "observations_manage",
-  "method": "get_observations",
-  "params": {
-    "user_login": "${this.userInfo?.login || 'username'}",
-    "order": "desc",
+    "per_page": 20,
     "order_by": "created_at"
   }
 }
 \`\`\`
 
-### 5. Geographic Search
-
-Find all observations within a bounding box:
-\`\`\`json
-{
-  "tool": "observations_manage",
-  "method": "get_observations",
-  "params": {
-    "swlat": 32.5,
-    "swlng": -117.5,
-    "nelat": 34.0,
-    "nelng": -116.0,
-    "iconic_taxa": ["Aves", "Mammalia"]
-  }
-}
-\`\`\`
-
-### 6. Get Identifications for an Observation
+### 2. Species Identification
 
 \`\`\`json
 {
-  "tool": "identifications_manage",
-  "method": "get_identifications",
-  "params": {
-    "observation_id": "123456",
-    "current": true
-  }
-}
-\`\`\`
-
-### 7. Universal Search
-
-Search across all content types:
-\`\`\`json
-{
-  "tool": "search_manage",
-  "method": "get_search",
-  "params": {
+  "tool": "taxa",
+  "method": "taxon_search",
+  "parameters": {
     "q": "monarch butterfly",
-    "per_page": 10
+    "rank": "species"
   }
 }
 \`\`\`
 
-## Authentication-Required Examples
+### 3. Joining a Project
+
+\`\`\`json
+{
+  "tool": "projects",
+  "method": "project_search",
+  "parameters": {
+    "q": "city nature challenge",
+    "type": "collection"
+  }
+}
+\`\`\`
+
+### 4. Adding an Identification
+
+\`\`\`json
+{
+  "tool": "identifications",
+  "method": "identification_create",
+  "parameters": {
+    "observation_id": 123456789,
+    "taxon_id": 48662,
+    "body": "This appears to be a Monarch butterfly based on the distinctive orange and black wing pattern."
+  }
+}
+\`\`\`
+
+### 5. Tracking Species Over Time
+
+\`\`\`json
+{
+  "tool": "observations",
+  "method": "observation_histogram",
+  "parameters": {
+    "taxon_id": 48662,
+    "date_field": "observed",
+    "interval": "month",
+    "place_id": 97394
+  }
+}
+\`\`\`
+
+## Error Handling
+
+All methods return structured responses. Common error scenarios:
+
+- **401 Unauthorized**: Authentication required for the requested action
+- **404 Not Found**: Resource (observation, taxon, etc.) doesn't exist
+- **422 Unprocessable Entity**: Invalid parameters provided
+- **429 Too Many Requests**: Rate limit exceeded
+
+## Best Practices
+
+1. **Use specific searches**: Include place_id, taxon_id, or other filters to get relevant results
+2. **Respect rate limits**: Don't make too many requests in quick succession
+3. **Check quality grades**: Use "research" grade for scientific analysis
+4. **Provide context**: Include helpful descriptions when creating identifications
+5. **Be respectful**: Follow community guidelines when commenting or flagging`;
+  };
+
+  private generateCategoryDoc = (categoryName: string): string => {
+    const category = this.generator.getCategoryInfo(categoryName);
+    if (!category) {
+      return `# ${categoryName}\n\nCategory not found.`;
+    }
+
+    const methodsList = category.methods
+      .map(
+        method =>
+          `## ${method.name}\n\n${method.description}\n\n**Parameters**: ${
+            method.parameters.join(', ') || 'None'
+          }\n\n**Example**:\n\`\`\`json\n${JSON.stringify(method.example, null, 2)}\n\`\`\``
+      )
+      .join('\n\n');
+
+    return `# ${category.name.charAt(0).toUpperCase() + category.name.slice(1)}
+
+${category.description}
+
+## Available Methods
+
+${methodsList}`;
+  };
+
+  private generateMethodDoc = (categoryName: string, methodName: string): string => {
+    const category = this.generator.getCategoryInfo(categoryName);
+    if (!category) {
+      return `# ${methodName}\n\nCategory ${categoryName} not found.`;
+    }
+
+    const method = category.methods.find(m => m.name === methodName);
+    if (!method) {
+      return `# ${methodName}\n\nMethod not found in category ${categoryName}.`;
+    }
+
+    return `# ${method.name}
+
+${method.description}
+
+## Parameters
 
 ${
-  this.userInfo
-    ? `### Post a Comment
+  method.parameters.length > 0
+    ? method.parameters.map(param => `- **${param}**`).join('\n')
+    : 'This method takes no parameters.'
+}
+
+## Example Usage
+
 \`\`\`json
 {
-  "tool": "comments_manage",
-  "method": "post_comments",
-  "params": {
-    "comment": {
-      "parent_type": "Observation",
-      "parent_id": "123456",
-      "body": "Great find! The wing pattern is distinctive."
-    }
-  }
+  "tool": "${categoryName}",
+  "method": "${method.name}",
+  "parameters": ${JSON.stringify(method.example, null, 2)}
 }
 \`\`\`
 
-### Create an Identification
-\`\`\`json
-{
-  "tool": "identifications_manage",
-  "method": "post_identifications",
-  "params": {
-    "identification": {
-      "observation_id": "123456",
-      "taxon_id": "48662",
-      "body": "Based on the wing pattern, this appears to be a Monarch."
+## Authentication
+
+${
+  this.requiresAuthentication(categoryName, methodName)
+    ? '🔐 **Authentication Required** - You must be logged in to use this method.'
+    : '🌐 **Public Access** - This method can be used without authentication.'
+}`;
+  };
+
+  private handlePrompt = async (name: string, args: any): Promise<any> => {
+    switch (name) {
+      case 'explore_observations':
+        return this.handleExploreObservationsPrompt(args);
+      case 'identify_species':
+        return this.handleIdentifySpeciesPrompt(args);
+      case 'join_project':
+        return this.handleJoinProjectPrompt(args);
+      case 'track_species':
+        return this.handleTrackSpeciesPrompt(args);
+      default:
+        throw new McpError(ErrorCode.InvalidRequest, `Unknown prompt: ${name}`);
     }
-  }
-}
-\`\`\``
-    : 'To perform write operations like posting comments or identifications, you need to be authenticated.'
-}
+  };
 
-## Tips
+  private handleExploreObservationsPrompt = async (args: any): Promise<any> => {
+    const { location, species, quality = 'research' } = args;
 
-1. **Pagination**: Use \`page\` and \`per_page\` for large result sets
-2. **Localization**: Use \`locale\` parameter for localized names (e.g., "es" for Spanish)
-3. **Quality**: Filter by \`quality_grade\` for research-grade observations
-4. **Dates**: Use ISO 8601 format for date filters (e.g., "2024-01-01")
-5. **Rate Limits**: Be mindful of API rate limits, especially for authenticated requests`;
-  }
+    let prompt = "I'll help you explore nature observations";
 
-  private getAvailablePrompts() {
-    const prompts = [
-      {
-        name: 'inaturalist_search',
-        description: 'Search for observations, taxa, or other iNaturalist content',
-        arguments: [
-          {
-            name: 'query',
-            description: 'What to search for',
-            required: true,
-          },
-          {
-            name: 'type',
-            description: 'Type of content (observations, taxa, projects, users)',
-            required: false,
-          },
-          {
-            name: 'filters',
-            description: 'Additional filters (location, date, quality, etc.)',
-            required: false,
-          },
-        ],
-      },
-    ];
-
-    if (this.userInfo) {
-      prompts.push({
-        name: 'my_observations',
-        description: `Get observations by ${this.userInfo.login}`,
-        arguments: [
-          {
-            name: 'filters',
-            description: 'Optional filters (taxon, place, date range)',
-            required: false,
-          },
-        ],
-      });
+    if (location) {
+      prompt += ` in ${location}`;
+    }
+    if (species) {
+      prompt += ` for ${species}`;
     }
 
-    return prompts;
-  }
+    prompt += `. Let me search for ${quality} grade observations and show you what's been discovered!\n\n`;
 
-  private async getPrompt(name: string) {
-    if (name === 'inaturalist_search') {
-      return {
-        name: 'inaturalist_search',
-        description: 'Search for observations, taxa, or other iNaturalist content',
-        arguments: [
-          {
-            name: 'query',
-            description: 'What to search for',
-            required: true,
-          },
-          {
-            name: 'type',
-            description: 'Type of content (observations, taxa, projects, users)',
-            required: false,
-          },
-          {
-            name: 'filters',
-            description: 'Additional filters (location, date, quality, etc.)',
-            required: false,
-          },
-        ],
-        messages: [
-          {
-            role: 'user',
-            content:
-              'Search for {{query}} {{#if type}}in {{type}}{{/if}} {{#if filters}}with filters: {{filters}}{{/if}}',
-          },
-          {
-            role: 'assistant',
-            content: `I'll search iNaturalist for that. ${
-              this.userInfo ? `Searching as ${this.userInfo.login}.` : 'Searching with read-only access.'
-            }`,
-          },
-        ],
-      };
+    // Build search parameters
+    const searchParams: any = {
+      quality_grade: quality,
+      per_page: 20,
+      order_by: 'created_at',
+      order: 'desc',
+    };
+
+    if (species) {
+      prompt += `First, let me find the taxon information for "${species}":\n\n`;
     }
 
-    if (name === 'my_observations' && this.userInfo) {
-      return {
-        name: 'my_observations',
-        description: `Get observations by ${this.userInfo.login}`,
-        arguments: [
-          {
-            name: 'filters',
-            description: 'Optional filters (taxon, place, date range)',
-            required: false,
-          },
-        ],
-        messages: [
-          {
-            role: 'user',
-            content: 'Get my observations {{#if filters}}with filters: {{filters}}{{/if}}',
-          },
-          {
-            role: 'assistant',
-            content: `I'll retrieve observations for ${this.userInfo.login} (${this.userInfo.observations_count} total observations).`,
-          },
-        ],
-      };
+    if (location) {
+      prompt += `I'll search for observations in ${location}. `;
     }
 
-    throw new McpError(ErrorCode.InvalidRequest, `Unknown prompt: ${name}`);
+    prompt += "Here's what I'll do:\n\n";
+    prompt += '1. Search for recent observations\n';
+    prompt += '2. Show you the species found\n';
+    prompt += '3. Highlight any interesting discoveries\n';
+    prompt += '4. Provide links to view the observations\n\n';
+    prompt += `Use the **observations** tool with method **observation_search** and these parameters:\n\`\`\`json\n${JSON.stringify(
+      searchParams,
+      null,
+      2
+    )}\n\`\`\``;
+
+    return {
+      description: `Exploring ${species || 'nature'} observations${location ? ` in ${location}` : ''}`,
+      messages: [
+        {
+          role: 'assistant',
+          content: {
+            type: 'text',
+            text: prompt,
+          },
+        },
+      ],
+    };
+  };
+
+  private handleIdentifySpeciesPrompt = async (args: any): Promise<any> => {
+    const { observation_id, description, location } = args;
+
+    let prompt = "I'll help you identify this species! ";
+
+    if (observation_id) {
+      prompt += `Let me look at observation #${observation_id} and provide identification assistance.\n\n`;
+      prompt += "Here's my approach:\n\n";
+      prompt += '1. Get the observation details and photos\n';
+      prompt += '2. Analyze the visual characteristics\n';
+      prompt += '3. Consider the location and habitat\n';
+      prompt += '4. Search for similar species\n';
+      prompt += '5. Provide identification suggestions\n\n';
+      prompt += `Start by using the **observations** tool with method **observation_details** and parameter:\n\`\`\`json\n{"id": ${observation_id}}\n\`\`\``;
+    } else {
+      prompt += "Based on your description, I'll help narrow down the possibilities.\n\n";
+
+      if (description) {
+        prompt += `Description: "${description}"\n`;
+      }
+      if (location) {
+        prompt += `Location: ${location}\n`;
+      }
+
+      prompt += "\nI'll search for species that match your description and location. ";
+      prompt += 'Use the **taxa** tool with method **taxon_search** to find potential matches.';
+    }
+
+    return {
+      description: `Identifying species${
+        observation_id ? ` from observation #${observation_id}` : ' from description'
+      }`,
+      messages: [
+        {
+          role: 'assistant',
+          content: {
+            type: 'text',
+            text: prompt,
+          },
+        },
+      ],
+    };
+  };
+
+  private handleJoinProjectPrompt = async (args: any): Promise<any> => {
+    const { interest, location } = args;
+
+    let prompt = `I'll help you find and join citizen science projects related to ${interest}! `;
+
+    if (location) {
+      prompt += `I'll focus on projects in ${location} as well as global projects you can participate in.\n\n`;
+    } else {
+      prompt += "I'll show you both local and global projects you can join.\n\n";
+    }
+
+    prompt += "Here's what I'll do:\n\n";
+    prompt += '1. Search for projects related to your interest\n';
+    prompt += '2. Show you project details and requirements\n';
+    prompt += '3. Help you understand how to contribute\n';
+    prompt += '4. Assist with joining projects that interest you\n\n';
+
+    const searchParams: any = {
+      q: interest,
+      per_page: 20,
+      type: 'collection',
+    };
+
+    prompt += `Use the **projects** tool with method **project_search** and these parameters:\n\`\`\`json\n${JSON.stringify(
+      searchParams,
+      null,
+      2
+    )}\n\`\`\`\n\n`;
+    prompt += 'After finding interesting projects, I can help you join them using the **projects_join** method!';
+
+    return {
+      description: `Finding ${interest} projects${location ? ` in ${location}` : ''}`,
+      messages: [
+        {
+          role: 'assistant',
+          content: {
+            type: 'text',
+            text: prompt,
+          },
+        },
+      ],
+    };
+  };
+
+  private handleTrackSpeciesPrompt = async (args: any): Promise<any> => {
+    const { species, location, time_period } = args;
+
+    let prompt = `I'll help you track observations and trends for ${species}`;
+
+    if (location) {
+      prompt += ` in ${location}`;
+    }
+    if (time_period) {
+      prompt += ` over ${time_period}`;
+    }
+
+    prompt += '!\n\n';
+
+    prompt += "Here's my analysis approach:\n\n";
+    prompt += '1. Find the taxon information for the species\n';
+    prompt += '2. Search for observations with temporal filters\n';
+    prompt += '3. Generate histogram data to show trends\n';
+    prompt += '4. Analyze seasonal patterns and hotspots\n';
+    prompt += '5. Provide insights about population trends\n\n';
+
+    prompt += `First, let me find the taxon ID for "${species}":\n\n`;
+    prompt += `Use the **taxa** tool with method **taxon_search** and parameter:\n\`\`\`json\n{"q": "${species}", "rank": "species"}\n\`\`\`\n\n`;
+    prompt +=
+      "Then I'll use the taxon_id to search for observations and generate trend data using the **observations** tool with methods like **observation_search** and **observation_histogram**.";
+
+    return {
+      description: `Tracking ${species} trends${location ? ` in ${location}` : ''}${
+        time_period ? ` over ${time_period}` : ''
+      }`,
+      messages: [
+        {
+          role: 'assistant',
+          content: {
+            type: 'text',
+            text: prompt,
+          },
+        },
+      ],
+    };
+  };
+
+  public async initialize(config?: AuthConfig): Promise<void> {
+    if (config) {
+      this.config = config;
+      console.error('🚀 Initializing iNaturalist MCP Server with authentication...');
+      await this.authenticateWithCredentials();
+    } else {
+      console.error('🌐 Initializing iNaturalist MCP Server in read-only mode...');
+      console.error(
+        '💡 Provide credentials for full functionality including creating observations, identifications, and comments.'
+      );
+    }
   }
 
-  async start(): Promise<void> {
+  public async run(): Promise<void> {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
-    console.error('iNaturalist MCP server v0.1.0 started');
-    console.error(`Total tools: ${this.tools.length} modules`);
-    console.error(`Base URL: ${this.config.baseURL || 'https://api.inaturalist.org/v1'}`);
-
-    if (this.config.clientId && this.config.clientSecret) {
-      console.error(
-        `Authentication: OAuth Resource Owner Password Credentials Flow (client_id: ${this.config.clientId})`
-      );
-      if (this.config.username) {
-        console.error(`OAuth User: ${this.config.username}`);
-      }
-      console.error(
-        'OAuth Flow: Resource Owner Password Credentials ONLY (Authorization Code, PKCE, and Assertion flows are disabled)'
-      );
-      console.error(
-        'Token Management: Dual-token system (access_token + api_token) with automatic caching and refresh'
-      );
-    } else {
-      console.error('Authentication: None (read-only access)');
-    }
+    console.error('🎯 iNaturalist MCP Server is running and ready for requests!');
   }
 }
 
-export { INaturalistMCPServer, type ServerConfig, type ToolDefinition };
+export { INaturalistMCPServer };
+export type { AuthConfig, UserInfo };

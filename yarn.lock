@@ -418,7 +418,7 @@ __metadata:
   dependencies:
     "@eslint/js": "npm:^9.30.1"
     "@modelcontextprotocol/sdk": "npm:^1.0.1"
-    "@richard-stovall/inat-typescript-client": "npm:^0.1.2"
+    "@richard-stovall/inat-typescript-client": "npm:^0.2.0"
     "@types/node": "npm:^20.11.0"
     "@typescript-eslint/eslint-plugin": "npm:^8.35.1"
     "@typescript-eslint/parser": "npm:^8.35.1"
@@ -432,14 +432,14 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@richard-stovall/inat-typescript-client@npm:^0.1.2":
-  version: 0.1.2
-  resolution: "@richard-stovall/inat-typescript-client@npm:0.1.2"
+"@richard-stovall/inat-typescript-client@npm:^0.2.0":
+  version: 0.2.0
+  resolution: "@richard-stovall/inat-typescript-client@npm:0.2.0"
   dependencies:
     axios: "npm:^1.10.0"
   peerDependencies:
     typescript: ^5.8.3
-  checksum: 10c0/0f0860cf15ecaeee18765e60235397dc9e3a7068ca058ad65c6781e455678da38143c4667b144188d810df1610a33c955ad60b68462236167b0dc60a2656caef
+  checksum: 10c0/e33832af7d7a2f789c0e0aea5eee8a6b0c165427acd127dcce1055e000d7b189a92a4bac5a38a75774ac33e5edfb13c8431d036cf5d436daa9e003c0904a0dd6
   languageName: node
   linkType: hard
 

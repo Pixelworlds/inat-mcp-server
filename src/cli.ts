@@ -1,75 +1,105 @@
 #!/usr/bin/env node
-import { INaturalistMCPServer, ServerConfig } from './server.js';
 
-const parseArgs = (): ServerConfig => {
-  const args = process.argv.slice(2);
-  const config: ServerConfig = {
-    baseURL: 'https://api.inaturalist.org/v1',
-    clientId: '',
-    clientSecret: '',
-    username: '',
-    password: '',
-  };
+import { AuthConfig, INaturalistMCPServer } from './server.js';
+
+const parseArgs = (args: string[]): { config?: AuthConfig; help: boolean } => {
+  const config: Partial<AuthConfig> = {};
+  let help = false;
 
   for (let i = 0; i < args.length; i++) {
-    switch (args[i]) {
-      case '--base-url':
-      case '-u':
-        config.baseURL = args[++i] || config.baseURL;
-        break;
-      case '--client-id':
-        config.clientId = args[++i] || '';
-        break;
-      case '--client-secret':
-        config.clientSecret = args[++i] || '';
-        break;
-      case '--username':
-        config.username = args[++i] || '';
-        break;
-      case '--password':
-        config.password = args[++i] || '';
-        break;
+    const arg = args[i];
+    const nextArg = args[i + 1];
+
+    switch (arg) {
       case '--help':
       case '-h':
-        showHelp();
-        process.exit(0);
+        help = true;
+        break;
+      case '--client-id':
+        if (nextArg) config.clientId = nextArg;
+        i++;
+        break;
+      case '--client-secret':
+        if (nextArg) config.clientSecret = nextArg;
+        i++;
+        break;
+      case '--username':
+        if (nextArg) config.username = nextArg;
+        i++;
+        break;
+      case '--password':
+        if (nextArg) config.password = nextArg;
+        i++;
+        break;
+      case '--base-url':
+        if (nextArg) config.baseURL = nextArg;
+        i++;
         break;
     }
   }
 
-  return config;
+  // Check environment variables
+  config.clientId = config.clientId || process.env.INAT_CLIENT_ID;
+  config.clientSecret = config.clientSecret || process.env.INAT_CLIENT_SECRET;
+  config.username = config.username || process.env.INAT_USERNAME;
+  config.password = config.password || process.env.INAT_PASSWORD;
+  config.baseURL = config.baseURL || process.env.INAT_BASE_URL;
+
+  // Validate that if any auth is provided, all required fields are present
+  const hasAnyAuth = config.clientId || config.clientSecret || config.username || config.password;
+  const hasCompleteAuth = config.clientId && config.clientSecret && config.username && config.password;
+
+  if (hasAnyAuth && !hasCompleteAuth) {
+    console.error('❌ Incomplete authentication credentials provided.');
+    console.error('   All four fields are required for authentication:');
+    console.error('   - Client ID (--client-id or INAT_CLIENT_ID)');
+    console.error('   - Client Secret (--client-secret or INAT_CLIENT_SECRET)');
+    console.error('   - Username (--username or INAT_USERNAME)');
+    console.error('   - Password (--password or INAT_PASSWORD)');
+    console.error('');
+    console.error('   Run with --help for more information.');
+    process.exit(1);
+  }
+
+  return {
+    config: hasCompleteAuth ? (config as AuthConfig) : undefined,
+    help,
+  };
 };
 
 const showHelp = (): void => {
-  console.log(`
-iNaturalist MCP Server v0.1.0
+  console.error(`iNaturalist MCP Server v2.0.0
 
 Usage: inaturalist [options]
 
-AUTHENTICATION: This server ONLY supports Resource Owner Password Credentials Flow.
-Authorization Code Flow, PKCE, and Assertion Flow are NOT supported.
-TOKEN MANAGEMENT: Access tokens are automatically cached and refreshed as needed.
-
 Options:
-  -u, --base-url <url>      iNaturalist API base URL (default: https://api.inaturalist.org/v1)
-  --client-id <id>          iNaturalist OAuth client ID (Resource Owner Password Credentials Flow)
-  --client-secret <secret>  iNaturalist OAuth client secret (Resource Owner Password Credentials Flow)
-  --username <username>     iNaturalist username (REQUIRED for Resource Owner Password Credentials Flow)
-  --password <password>     iNaturalist password (REQUIRED for Resource Owner Password Credentials Flow)
-  -h, --help                Show this help message
+  --client-id <id>        iNaturalist OAuth client ID
+  --client-secret <secret> iNaturalist OAuth client secret  
+  --username <username>   iNaturalist username
+  --password <password>   iNaturalist password
+  --base-url <url>        Custom API base URL (default: https://api.inaturalist.org/v1)
+  --help, -h             Show this help message
 
 Environment Variables:
-  INATURALIST_BASE_URL      iNaturalist API base URL
-  INAT_CLIENT_ID            iNaturalist OAuth client ID (Resource Owner Password Credentials Flow)
-  INAT_CLIENT_SECRET        iNaturalist OAuth client secret (Resource Owner Password Credentials Flow)
-  INAT_USERNAME             iNaturalist username (REQUIRED for Resource Owner Password Credentials Flow)
-  INAT_PASSWORD             iNaturalist password (REQUIRED for Resource Owner Password Credentials Flow)
+  INAT_CLIENT_ID         OAuth client ID
+  INAT_CLIENT_SECRET     OAuth client secret
+  INAT_USERNAME          iNaturalist username
+  INAT_PASSWORD          iNaturalist password
+  INAT_BASE_URL          Custom API base URL
+
+Authentication:
+  The server uses OAuth 2.0 Resource Owner Password Credentials Flow.
+  When provided with credentials, it will:
+  1. Obtain an access token using username/password
+  2. Exchange access token for an API token
+  3. Preload user information
+  4. Enable full read/write functionality
 
 Examples:
-  # Basic usage (read-only access)
+  # Read-only mode (public data access only)
   inaturalist
 
-  # With OAuth credentials for full access (Resource Owner Password Credentials Flow ONLY)
+  # Authenticated mode (full functionality)
   inaturalist --client-id your-client-id --client-secret your-client-secret --username your-username --password your-password
 
   # Using environment variables
@@ -79,45 +109,72 @@ Examples:
   export INAT_PASSWORD=your-password
   inaturalist
 
-  # Custom API base URL
-  inaturalist --base-url https://api.inaturalist.org/v1
+Features:
+  • 🔍 Search observations, taxa, places, and projects
+  • 🆔 Create and manage species identifications  
+  • 📝 Add comments and engage with the community
+  • 📊 Join citizen science projects
+  • 📈 Track species trends and biodiversity data
+  • 🌍 Explore nature observations worldwide
 
-Tool Usage:
-  Each tool represents a module and accepts a 'method' parameter to specify the operation.
-  
-  Example: observations_manage
-  - method: "get_observations" - Search observations
-  - method: "get_observations_id" - Get a specific observation
-  - method: "get_observations_taxon_stats" - Get taxon statistics from observations
-  
-  Parameters are passed in the 'params' object:
-  {
-    "method": "get_observations",
-    "params": {
-      "q": "Pinus",
-      "place_id": "1",
-      "per_page": 10
-    }
-  }
+Tools Available:
+  • observations  - Search, create, and manage nature observations
+  • taxa          - Explore species and taxonomic information
+  • places        - Find and explore geographic locations
+  • projects      - Discover and join citizen science projects
+  • identifications - Create and manage species identifications
+  • users         - View user profiles and statistics
+  • comments      - Add comments and engage with observations
+  • search        - Comprehensive search across all content
+  • flags         - Report content issues
 
-Based on @richard-stovall/inat-typescript-client v0.1.1
-`);
+For detailed documentation, use the MCP resources system to access:
+  • inaturalist://docs/overview - API overview and getting started
+  • inaturalist://docs/authentication - Authentication guide
+  • inaturalist://docs/examples - Usage examples and patterns
+  • inaturalist://docs/{category} - Category-specific documentation
+
+Note: Authentication is handled automatically during server initialization.
+      No manual authentication tools are exposed to clients.`);
 };
 
 const main = async (): Promise<void> => {
-  const config = parseArgs();
+  try {
+    const { config, help } = parseArgs(process.argv.slice(2));
 
-  config.baseURL = config.baseURL || process.env.INATURALIST_BASE_URL || 'https://api.inaturalist.org/v1';
-  config.clientId = config.clientId || process.env.INAT_CLIENT_ID || '';
-  config.clientSecret = config.clientSecret || process.env.INAT_CLIENT_SECRET || '';
-  config.username = config.username || process.env.INAT_USERNAME || '';
-  config.password = config.password || process.env.INAT_PASSWORD || '';
+    if (help) {
+      showHelp();
+      process.exit(0);
+    }
 
-  const server = new INaturalistMCPServer(config);
-  await server.start();
+    const server = new INaturalistMCPServer();
+
+    // Initialize with authentication if provided
+    await server.initialize(config);
+
+    // Start the server
+    await server.run();
+  } catch (error) {
+    console.error(
+      '❌ Failed to start iNaturalist MCP Server:',
+      error instanceof Error ? error.message : 'Unknown error'
+    );
+    process.exit(1);
+  }
 };
 
+// Handle graceful shutdown
+process.on('SIGINT', () => {
+  console.error('\n👋 Shutting down iNaturalist MCP Server...');
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.error('\n👋 Shutting down iNaturalist MCP Server...');
+  process.exit(0);
+});
+
 main().catch(error => {
-  console.error('Failed to start server:', error);
+  console.error('❌ Unexpected error:', error);
   process.exit(1);
 });

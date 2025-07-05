@@ -1,103 +1,110 @@
-# iNaturalist MCP Server
+# iNaturalist MCP Server v2.0
 
-A comprehensive Model Context Protocol (MCP) server providing access to the complete iNaturalist API v1 through the `@richard-stovall/inat-typescript-client` SDK. This server enables AI assistants to interact with iNaturalist's biodiversity data, observations, taxonomic information, and community features.
+A Model Context Protocol (MCP) server that provides access to the iNaturalist API through organized, category-based tools. Built for @richard-stovall/inat-typescript-client v0.2.0.
 
 ## Features
 
-- **16 Modular Tools** covering all major iNaturalist SDK modules
-- **Comprehensive Coverage**: Observations, taxa, places, projects, users, identifications, and more
-- **TypeScript Client Integration**: Uses `@richard-stovall/inat-typescript-client` for robust API calls
-- **Geographic Filtering**: Bounding boxes, radius searches, place-based queries
-- **Taxonomic Search**: Species identification, hierarchical browsing, autocomplete
-- **Community Features**: Projects, users, comments, identifications, flags
-- **Authentication Support**: OAuth credentials with automatic token caching and refresh
-- **Auto-Generated Tools**: Automatically introspects SDK modules to generate MCP tools
+- **Automatic Authentication**: Handles OAuth and API token flow automatically on startup
+- **Category-Based Tools**: One tool per major API category for better organization
+- **Comprehensive Documentation**: Rich prompts and resources explain all available endpoints
+- **Type-Safe**: Full TypeScript implementation with proper error handling
+- **Token Management**: Automatic token caching and refresh handling
+
+## Available Tools
+
+The server provides 10 category-based tools, each containing multiple endpoints:
+
+1. **observations** - Search, create, update, and manage observations
+2. **taxa** - Search and retrieve taxonomic information
+3. **places** - Geographic location data and place management
+4. **projects** - Project information and management
+5. **identifications** - Species identifications and suggestions
+6. **users** - User profiles and account information
+7. **comments** - Comments on observations and other content
+8. **flags** - Content flagging and moderation
+9. **search** - Universal search across all content types
+10. **photos** - Photo management and metadata
+
+Each tool includes detailed documentation of its available methods, parameters, and usage examples.
+
+## Authentication
+
+The server requires iNaturalist OAuth credentials and automatically handles the complete authentication flow:
+
+1. **OAuth Token**: Uses Resource Owner Password Credentials Flow to get access token
+2. **API Token**: Uses access token to retrieve permanent API token from `/users/api_token`
+3. **User Info**: Preloads user information for context
+
+### Required Credentials
+
+- `client_id`: Your iNaturalist OAuth application client ID
+- `client_secret`: Your iNaturalist OAuth application client secret
+- `username`: Your iNaturalist username
+- `password`: Your iNaturalist password
 
 ## Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/richard-stovall/inaturalist-mcp-server.git
-cd inaturalist-mcp-server
-
 # Install dependencies
 yarn install
 
-# Generate tools and build server
-yarn build:all
+# Generate tools (analyzes v0.2.0 client structure)
+yarn generate-tools
+
+# Build the project
+yarn build
 ```
 
 ## Usage
 
-### Basic Usage (Read-only)
+### Command Line
 
 ```bash
+# Run with credentials
+node dist/cli.js --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET --username YOUR_USERNAME --password YOUR_PASSWORD
+
+# Environment variables
+export INAT_CLIENT_ID="your_client_id"
+export INAT_CLIENT_SECRET="your_client_secret"
+export INAT_USERNAME="your_username"
+export INAT_PASSWORD="your_password"
 node dist/cli.js
 ```
 
-### With OAuth Authentication
+### Claude Desktop
 
-```bash
-# Using command line arguments
-node dist/cli.js --client-id your-client-id --client-secret your-client-secret --username your-username --password your-password
+Add to your Claude Desktop configuration:
 
-# Using environment variables
-export INAT_CLIENT_ID=your-client-id
-export INAT_CLIENT_SECRET=your-client-secret
-export INAT_USERNAME=your-username
-export INAT_PASSWORD=your-password
-node dist/cli.js
+```json
+{
+  "mcpServers": {
+    "inaturalist": {
+      "command": "node",
+      "args": ["/path/to/inat-mcp-server/dist/cli.js"],
+      "env": {
+        "INAT_CLIENT_ID": "your_client_id",
+        "INAT_CLIENT_SECRET": "your_client_secret",
+        "INAT_USERNAME": "your_username",
+        "INAT_PASSWORD": "your_password"
+      }
+    }
+  }
+}
 ```
 
-### Custom Configuration
-
-```bash
-node dist/cli.js --base-url https://api.inaturalist.org/v1 --client-id your-client-id --client-secret your-client-secret
-```
-
-## Available Tools
-
-### Core Data Management
-
-- **observations_manage** (12 methods) - Search, create, update, and analyze biodiversity observations
-- **taxa_manage** (2 methods) - Taxonomic information and species identification
-- **places_manage** (1 method) - Geographic places and boundaries
-- **projects_manage** (8 methods) - Community science projects and data collections
-- **users_manage** (4 methods) - User profiles and account management
-
-### Community Features
-
-- **identifications_manage** (9 methods) - Species identifications and suggestions
-- **comments_manage** (3 methods) - Comments and discussions on observations
-- **flags_manage** (3 methods) - Content flagging and moderation
-- **search_manage** (1 method) - Universal search across all content
-
-### Data Enhancement
-
-- **annotations_manage** (2 methods) - Structured observation annotations
-- **controlled_terms_manage** (2 methods) - Standardized vocabulary terms
-- **observation_fields_manage** (1 method) - Custom observation data fields
-- **observation_field_values_manage** (3 methods) - Values for custom fields
-- **observation_photos_manage** (1 method) - Photo management and metadata
-- **project_observations_manage** (1 method) - Link observations to projects
-
-### Authentication
-
-- **authentication_manage** (3 methods) - User authentication and OAuth
-
-## Tool Usage Examples
+## Example Usage
 
 ### Search for Observations
 
 ```json
 {
-  "tool": "observations_manage",
+  "name": "observations",
   "arguments": {
-    "method": "get_observations",
-    "params": {
-      "q": "Pinus",
-      "quality_grade": "research",
-      "per_page": 20
+    "method": "observation_search",
+    "parameters": {
+      "q": "monarch butterfly",
+      "place_id": 97394,
+      "per_page": 10
     }
   }
 }
@@ -107,231 +114,99 @@ node dist/cli.js --base-url https://api.inaturalist.org/v1 --client-id your-clie
 
 ```json
 {
-  "tool": "taxa_manage",
+  "name": "taxa",
   "arguments": {
-    "method": "get_taxa",
-    "params": {
-      "q": "Quercus",
+    "method": "taxa_search",
+    "parameters": {
+      "q": "Danaus plexippus",
       "rank": "species"
     }
   }
 }
 ```
 
-### Geographic Search
+### Search Places
 
 ```json
 {
-  "tool": "observations_manage",
+  "name": "places",
   "arguments": {
-    "method": "get_observations",
-    "params": {
-      "lat": 37.7749,
-      "lng": -122.4194,
-      "radius": 10,
-      "quality_grade": "research"
+    "method": "places_search",
+    "parameters": {
+      "q": "Yellowstone National Park"
     }
   }
 }
 ```
 
-### Get Project Information
+## Documentation
 
-```json
-{
-  "tool": "projects_manage",
-  "arguments": {
-    "method": "get_projects",
-    "params": {
-      "q": "butterfly",
-      "type": "collection"
-    }
-  }
-}
-```
+The server provides rich documentation through:
 
-## Configuration
+- **Prompts**: Detailed guides for using each category of tools
+- **Resources**: API reference documentation for all endpoints
+- **Examples**: Practical usage examples for common tasks
 
-### Environment Variables
+Access documentation through the MCP protocol:
 
-- `INATURALIST_BASE_URL` - API base URL (default: https://api.inaturalist.org/v1)
-- `INAT_CLIENT_ID` - iNaturalist OAuth client ID (Resource Owner Password Credentials Flow)
-- `INAT_CLIENT_SECRET` - iNaturalist OAuth client secret (Resource Owner Password Credentials Flow)
-- `INAT_USERNAME` - iNaturalist username (**REQUIRED** for Resource Owner Password Credentials Flow)
-- `INAT_PASSWORD` - iNaturalist password (**REQUIRED** for Resource Owner Password Credentials Flow)
-
-### Command Line Options
-
-- `-u, --base-url <url>` - Custom API base URL
-- `--client-id <id>` - iNaturalist OAuth client ID (Resource Owner Password Credentials Flow)
-- `--client-secret <secret>` - iNaturalist OAuth client secret (Resource Owner Password Credentials Flow)
-- `--username <username>` - iNaturalist username (**REQUIRED** for Resource Owner Password Credentials Flow)
-- `--password <password>` - iNaturalist password (**REQUIRED** for Resource Owner Password Credentials Flow)
-- `-h, --help` - Show help message
-
-### Authentication Methods
-
-1. **OAuth Credentials** - Full OAuth flow with client credentials and user authentication
-2. **No Authentication** - Read-only access to public data
-
-### Usage Examples
-
-```bash
-# Basic usage (read-only access)
-node dist/cli.js
-
-# With OAuth credentials
-node dist/cli.js --client-id your-client-id --client-secret your-client-secret --username your-username --password your-password
-
-# Using environment variables
-export INAT_CLIENT_ID=your-client-id
-export INAT_CLIENT_SECRET=your-client-secret
-export INAT_USERNAME=your-username
-export INAT_PASSWORD=your-password
-node dist/cli.js
-```
-
-## Claude Desktop Integration
-
-Add to your Claude Desktop configuration:
-
-### With OAuth Credentials
-
-```json
-{
-  "mcpServers": {
-    "inaturalist": {
-      "command": "node",
-      "args": ["/path/to/inaturalist-mcp-server/dist/cli.js"],
-      "env": {
-        "INAT_CLIENT_ID": "your-client-id",
-        "INAT_CLIENT_SECRET": "your-client-secret",
-        "INAT_USERNAME": "your-username",
-        "INAT_PASSWORD": "your-password"
-      }
-    }
-  }
-}
-```
+- List prompts: `prompts/list`
+- Get prompt: `prompts/get` with name like "observations-guide"
+- List resources: `resources/list`
+- Read resource: `resources/read` with URI like "docs://observations"
 
 ## Development
-
-### Build Process
-
-```bash
-# Generate tools from SDK introspection
-yarn generate-tools
-
-# Build the MCP server
-yarn build
-
-# Run both steps
-yarn build:all
-
-# Validate the build
-yarn validate
-```
 
 ### Project Structure
 
 ```
-├── dist/                      # Compiled output
-│   ├── cli.js                # Main CLI entry point
-│   ├── server.js             # MCP server implementation
-│   └── tools-generated.json  # Generated tool definitions
-├── src/                       # TypeScript source files
-│   ├── cli.ts                # CLI argument parsing and startup
-│   ├── server.ts             # Core MCP server class
-│   ├── generate-tools.ts     # Tool generation from SDK
-│   └── prebuild.ts           # Build preparation script
-├── package.json               # Dependencies and scripts
-├── tsconfig.json              # TypeScript configuration
-└── README.md                  # This file
+src/
+├── generate-tools.ts    # Tool generator for v0.2.0 client
+├── server.ts           # Main MCP server implementation
+├── cli.ts              # Command-line interface
+└── prebuild.ts         # Build validation
+
+dist/                   # Compiled JavaScript output
 ```
 
-## Authentication
+### Build Process
 
-The server **ONLY supports Resource Owner Password Credentials Flow** for OAuth authentication. Authorization Code Flow, PKCE, and Assertion Flow are **NOT supported**.
+1. **Tool Generation**: Analyzes the v0.2.0 client to extract all available methods
+2. **TypeScript Compilation**: Compiles to JavaScript with proper module resolution
+3. **Validation**: Ensures all required files and dependencies are present
 
-### Benefits of Authentication
+### Authentication Flow
 
-- Access to private observations
-- Higher rate limits (10,000/hour vs 100/hour)
-- User-specific data and operations
-- Write operations (where supported by the SDK)
+The server implements a sophisticated three-step authentication process:
 
-### Getting OAuth Credentials
+1. **OAuth Authentication**: POST to `https://www.inaturalist.org/oauth/token`
+2. **API Token Retrieval**: GET `/users/api_token` with Bearer token
+3. **User Information**: GET `/users/me` for context
 
-1. Log in to iNaturalist
-2. Go to Account Settings → Applications
-3. Create a new application or use an existing one
-4. Copy your client ID and client secret
-5. Use your iNaturalist username and password for authentication
-
-**Important**: When using OAuth credentials, both username and password are **REQUIRED** to enforce Resource Owner Password Credentials Flow only. The server will reject configurations that attempt to use other OAuth flows.
-
-**Token Management**: The server automatically caches access tokens and refreshes them as needed. Tokens are kept in memory and refreshed automatically before expiration, ensuring uninterrupted API access without repeated authentication.
-
-## Rate Limits
-
-- **Unauthenticated**: 100 requests per hour
-- **Authenticated**: 10,000 requests per hour
-
-The server automatically includes proper headers and authentication to optimize rate limit usage.
-
-## Token Management
-
-The server includes sophisticated token management:
-
-### Automatic Token Caching
-
-- **Access Tokens**: Cached in memory after successful OAuth authentication
-- **API Tokens**: Long-lived tokens obtained when possible for enhanced access
-- **Expiration Tracking**: Monitors token expiry and refreshes automatically
-
-### Token Refresh Strategy
-
-- **Proactive Refresh**: Tokens are refreshed 5 minutes before expiration
-- **Automatic Retry**: Failed token refresh attempts fall back to read-only access
-- **Resource Owner Password Credentials Flow**: Only supported OAuth flow for security
-
-### Benefits
-
-- **Uninterrupted Access**: No authentication delays during API calls
-- **Rate Limit Optimization**: Maintains authenticated status for higher limits
-- **Error Recovery**: Graceful fallback to read-only mode if authentication fails
+All authentication happens automatically during server initialization.
 
 ## Error Handling
 
-The server provides comprehensive error reporting:
+- Comprehensive error handling for authentication failures
+- Graceful degradation for network issues
+- Detailed error messages for debugging
+- Automatic token refresh when needed
 
-- HTTP status codes and messages
-- Response data details
-- Method validation errors
-- SDK-level error information
+## License
+
+MIT License - see LICENSE file for details.
 
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Run `yarn validate` to ensure everything works
+4. Add tests if applicable
 5. Submit a pull request
 
-## License
+## Support
 
-MIT License - see LICENSE file for details.
+For issues related to:
 
-## Dependencies
-
-- **@modelcontextprotocol/sdk**: MCP protocol implementation
-- **@richard-stovall/inat-typescript-client**: iNaturalist API TypeScript client
-- **TypeScript**: Type safety and development tools
-
-Based on `@richard-stovall/inat-typescript-client` v0.1.1 and MCP SDK v1.0.1
-
-## Links
-
-- [iNaturalist API Documentation](https://www.inaturalist.org/pages/api+reference)
-- [Model Context Protocol](https://modelcontextprotocol.io/)
-- [iNaturalist Website](https://www.inaturalist.org/)
+- **MCP Server**: Open an issue in this repository
+- **iNaturalist API**: Check the [iNaturalist API documentation](https://www.inaturalist.org/pages/api+reference)
+- **TypeScript Client**: Check the [@richard-stovall/inat-typescript-client](https://www.npmjs.com/package/@richard-stovall/inat-typescript-client) package
