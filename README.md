@@ -32,27 +32,27 @@ yarn build:all
 ### Basic Usage (Read-only)
 
 ```bash
-node dist/index.js
+node dist/cli.js
 ```
 
 ### With OAuth Authentication
 
 ```bash
 # Using command line arguments
-node dist/index.js --client-id your-client-id --client-secret your-client-secret --username your-username --password your-password
+node dist/cli.js --client-id your-client-id --client-secret your-client-secret --username your-username --password your-password
 
 # Using environment variables
 export INAT_CLIENT_ID=your-client-id
 export INAT_CLIENT_SECRET=your-client-secret
 export INAT_USERNAME=your-username
 export INAT_PASSWORD=your-password
-node dist/index.js
+node dist/cli.js
 ```
 
 ### Custom Configuration
 
 ```bash
-node dist/index.js --base-url https://api.inaturalist.org/v1 --client-id your-client-id --client-secret your-client-secret
+node dist/cli.js --base-url https://api.inaturalist.org/v1 --client-id your-client-id --client-secret your-client-secret
 ```
 
 ## Available Tools
@@ -178,17 +178,17 @@ node dist/index.js --base-url https://api.inaturalist.org/v1 --client-id your-cl
 
 ```bash
 # Basic usage (read-only access)
-node dist/index.js
+node dist/cli.js
 
 # With OAuth credentials
-node dist/index.js --client-id your-client-id --client-secret your-client-secret --username your-username --password your-password
+node dist/cli.js --client-id your-client-id --client-secret your-client-secret --username your-username --password your-password
 
 # Using environment variables
 export INAT_CLIENT_ID=your-client-id
 export INAT_CLIENT_SECRET=your-client-secret
 export INAT_USERNAME=your-username
 export INAT_PASSWORD=your-password
-node dist/index.js
+node dist/cli.js
 ```
 
 ## Claude Desktop Integration
@@ -202,7 +202,7 @@ Add to your Claude Desktop configuration:
   "mcpServers": {
     "inaturalist": {
       "command": "node",
-      "args": ["/path/to/inat-mcp-server/dist/index.js"],
+      "args": ["/path/to/inat-mcp-server/dist/cli.js"],
       "env": {
         "INAT_CLIENT_ID": "your-client-id",
         "INAT_CLIENT_SECRET": "your-client-secret",
@@ -235,11 +235,15 @@ yarn validate
 ### Project Structure
 
 ```
-├── index.js                    # Generated MCP server
-├── tools-generated.json       # Generated tool definitions
-├── src/
-│   ├── build.ts              # Build script
-│   └── generate-tools.ts      # Tool generation from SDK
+├── dist/                      # Compiled output
+│   ├── cli.js                # Main CLI entry point
+│   ├── server.js             # MCP server implementation
+│   └── tools-generated.json  # Generated tool definitions
+├── src/                       # TypeScript source files
+│   ├── cli.ts                # CLI argument parsing and startup
+│   ├── server.ts             # Core MCP server class
+│   ├── generate-tools.ts     # Tool generation from SDK
+│   └── prebuild.ts           # Build preparation script
 ├── package.json               # Dependencies and scripts
 ├── tsconfig.json              # TypeScript configuration
 └── README.md                  # This file

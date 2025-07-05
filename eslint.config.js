@@ -35,7 +35,7 @@ export default [
       'no-undef': 'off',
       'object-curly-spacing': 'off',
       'prefer-promise-reject-errors': 'off',
-      'arrow-parens': ['warn', 'always'],
+      'arrow-parens': 'off',
       'prefer-arrow-callback': 'warn',
       'no-async-promise-executor': 'off',
     },

@@ -13,15 +13,16 @@
   "bugs": {
     "url": "https://github.com/richard-stovall/inat-mcp-server/issues"
   },
-  "bin": "dist/index.js",
+  "bin": "dist/cli.js",
   "scripts": {
-    "start": "node dist/index.js",
-    "dev": "tsx watch index.ts",
-    "help": "node dist/index.js --help",
-    "build": "tsx src/build.ts",
+    "start": "node dist/cli.js",
+    "dev": "tsx watch src/cli.ts",
+    "help": "node dist/cli.js --help",
+    "prebuild": "tsx src/prebuild.ts",
+    "build": "yarn prebuild && tsc --build",
     "generate-tools": "tsx src/generate-tools.ts",
     "build:all": "yarn generate-tools && yarn build",
-    "validate": "node dist/index.js --help > /dev/null 2>&1; echo 'Validation passed'",
+    "validate": "node dist/cli.js --help > /dev/null 2>&1; echo 'Validation passed'",
     "type-check": "tsc --noEmit",
     "lint": "eslint src/**/*.ts --fix",
     "lint:check": "eslint src/**/*.ts"
@@ -54,7 +55,8 @@
     "typescript": "^5.3.3"
   },
   "files": [
-    "dist/index.js",
+    "dist/cli.js",
+    "dist/server.js",
     "dist/tools-generated.json",
     "README.md",
     "LICENSE"
