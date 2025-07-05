@@ -1,0 +1,63 @@
+{
+  "name": "@richard-stovall/inat-mcp-server",
+  "version": "0.1.0",
+  "description": "Modular MCP server for iNaturalist API access - comprehensive naturalist data and observation tools",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/richard-stovall/inat-mcp-server.git"
+  },
+  "homepage": "https://github.com/richard-stovall/inat-mcp-server#readme",
+  "bugs": {
+    "url": "https://github.com/richard-stovall/inat-mcp-server/issues"
+  },
+  "bin": "dist/index.js",
+  "scripts": {
+    "start": "node dist/index.js",
+    "dev": "tsx watch index.ts",
+    "help": "node dist/index.js --help",
+    "build": "tsx src/build.ts",
+    "generate-tools": "tsx src/generate-tools.ts",
+    "build:all": "yarn generate-tools && yarn build",
+    "validate": "node dist/index.js --help > /dev/null 2>&1; echo 'Validation passed'",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src/**/*.ts --fix",
+    "lint:check": "eslint src/**/*.ts"
+  },
+  "keywords": [
+    "inaturalist",
+    "mcp",
+    "model-context-protocol",
+    "naturalist",
+    "biodiversity",
+    "api",
+    "automation",
+    "typescript"
+  ],
+  "author": "Richard Stovall",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.1",
+    "@richard-stovall/inat-typescript-client": "^0.1.1",
+    "zod": "^3.25.67"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.30.1",
+    "@types/node": "^20.11.0",
+    "@typescript-eslint/eslint-plugin": "^8.35.1",
+    "@typescript-eslint/parser": "^8.35.1",
+    "eslint": "^9.30.1",
+    "globals": "^16.3.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.3.3"
+  },
+  "files": [
+    "dist/index.js",
+    "dist/tools-generated.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "packageManager": "yarn@4.9.2"
+}

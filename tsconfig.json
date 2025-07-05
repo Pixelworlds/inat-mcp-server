@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    // Environment setup & latest features
+    "lib": ["ES2022", "ES2019", "ES2017", "ES2015", "DOM"],
+    "types": ["node"],
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleDetection": "force",
+    "allowJs": true,
+
+    // Node.js mode
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@modelcontextprotocol/sdk/*": ["node_modules/@modelcontextprotocol/sdk/dist/*"]
+    },
+    "declaration": false,
+    "noEmit": true,
+
+    // Best practices
+    "strict": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": false,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "forceConsistentCasingInFileNames": true,
+
+    // Some stricter flags (disabled by default)
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noPropertyAccessFromIndexSignature": false
+  },
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
+}
