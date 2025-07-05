@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 import { INaturalistMCPServer, ServerConfig } from './server.js';
 
-// Parse command line arguments
-function parseArgs(): ServerConfig {
+const parseArgs = (): ServerConfig => {
   const args = process.argv.slice(2);
   const config: ServerConfig = {
     baseURL: 'https://api.inaturalist.org/v1',
@@ -39,9 +38,9 @@ function parseArgs(): ServerConfig {
   }
 
   return config;
-}
+};
 
-function showHelp(): void {
+const showHelp = (): void => {
   console.log(`
 iNaturalist MCP Server v0.1.0
 
@@ -103,26 +102,22 @@ Tool Usage:
 
 Based on @richard-stovall/inat-typescript-client v0.1.1
 `);
-}
+};
 
-// Main entry point
-async function main(): Promise<void> {
+const main = async (): Promise<void> => {
   const config = parseArgs();
 
-  // Use environment variables as fallback
   config.baseURL = config.baseURL || process.env.INATURALIST_BASE_URL || 'https://api.inaturalist.org/v1';
   config.clientId = config.clientId || process.env.INAT_CLIENT_ID || '';
   config.clientSecret = config.clientSecret || process.env.INAT_CLIENT_SECRET || '';
   config.username = config.username || process.env.INAT_USERNAME || '';
   config.password = config.password || process.env.INAT_PASSWORD || '';
 
-  // Create and start server
   const server = new INaturalistMCPServer(config);
   await server.start();
-}
+};
 
-// Run the server
-main().catch((error) => {
+main().catch(error => {
   console.error('Failed to start server:', error);
   process.exit(1);
 });

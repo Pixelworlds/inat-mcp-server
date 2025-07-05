@@ -223,14 +223,15 @@ class INaturalistMCPServer {
 
     this.server.setRequestHandler(CallToolRequestSchema, async request => {
       const { name, arguments: args } = request.params;
-
       const tool = this.tools.find(t => t.name === name);
+
       if (!tool) {
         throw new McpError(ErrorCode.MethodNotFound, `Tool ${name} not found`);
       }
 
       try {
         const result = await this.callModularTool(tool, args || {});
+
         return {
           content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
         };
