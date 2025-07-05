@@ -1,6 +1,6 @@
 {
   "name": "@richard-stovall/inat-mcp-server",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Modular MCP server for iNaturalist API access - comprehensive naturalist data and observation tools",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

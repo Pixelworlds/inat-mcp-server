@@ -1,6 +1,15 @@
-# iNaturalist MCP Server v2.0
+# iNaturalist MCP Server v0.2.0
 
-A Model Context Protocol (MCP) server that provides access to the iNaturalist API through organized, category-based tools. Built for @richard-stovall/inat-typescript-client v0.2.0.
+<div align="center">
+  <img src="https://github.com/user-attachments/assets/52fe66af-3a88-4ea2-9a14-e9528cfdeec7" alt="iNaturalist TypeScript SDK Logo" width="200">
+</div>
+<br />
+
+> [!WARNING] > **Development Status Notice**
+>
+> The iNaturalist API calls are returning too much data currently causing most of the requests to be rejected and causing the MCP server's clients to become unstable. Not recommended for use yet.
+
+A Model Context Protocol (MCP) server that provides access to the iNaturalist API through organized, category-based tools. Built for @richard-stovall/inat-typescript-client v0.2.0 with a completely rewritten architecture.
 
 ## Features
 
@@ -12,7 +21,7 @@ A Model Context Protocol (MCP) server that provides access to the iNaturalist AP
 
 ## Available Tools
 
-The server provides 10 category-based tools, each containing multiple endpoints:
+The server provides 9 category-based tools, each containing multiple endpoints:
 
 1. **observations** - Search, create, update, and manage observations
 2. **taxa** - Search and retrieve taxonomic information
@@ -21,9 +30,8 @@ The server provides 10 category-based tools, each containing multiple endpoints:
 5. **identifications** - Species identifications and suggestions
 6. **users** - User profiles and account information
 7. **comments** - Comments on observations and other content
-8. **flags** - Content flagging and moderation
-9. **search** - Universal search across all content types
-10. **photos** - Photo management and metadata
+8. **search** - Universal search across all content types
+9. **flags** - Content flagging and moderation
 
 Each tool includes detailed documentation of its available methods, parameters, and usage examples.
 
@@ -31,9 +39,9 @@ Each tool includes detailed documentation of its available methods, parameters, 
 
 The server requires iNaturalist OAuth credentials and automatically handles the complete authentication flow:
 
-1. **OAuth Token**: Uses Resource Owner Password Credentials Flow to get access token
-2. **API Token**: Uses access token to retrieve permanent API token from `/users/api_token`
-3. **User Info**: Preloads user information for context
+1. **OAuth Token**: Uses Resource Owner Password Credentials Flow to get access token from `https://www.inaturalist.org/oauth/token`
+2. **API Token**: Uses access token to retrieve permanent API token from `https://www.inaturalist.org/users/api_token`
+3. **User Info**: Preloads user information from `https://api.inaturalist.org/v1/users/me` for context
 
 ### Required Credentials
 
@@ -178,18 +186,18 @@ dist/                   # Compiled JavaScript output
 
 The server implements a sophisticated three-step authentication process:
 
-1. **OAuth Authentication**: POST to `https://www.inaturalist.org/oauth/token`
-2. **API Token Retrieval**: GET `/users/api_token` with Bearer token
-3. **User Information**: GET `/users/me` for context
+1. **OAuth Authentication**: POST to `https://www.inaturalist.org/oauth/token` with username/password
+2. **API Token Retrieval**: GET `https://www.inaturalist.org/users/api_token` with Bearer access token
+3. **User Information**: GET `https://api.inaturalist.org/v1/users/me` with API token for context
 
-All authentication happens automatically during server initialization.
+All authentication happens automatically during server initialization. If authentication fails, the server gracefully falls back to read-only mode with access to all public data.
 
 ## Error Handling
 
-- Comprehensive error handling for authentication failures
-- Graceful degradation for network issues
-- Detailed error messages for debugging
-- Automatic token refresh when needed
+- **Authentication Failures**: Graceful fallback to read-only mode when credentials are invalid or authentication fails
+- **Network Issues**: Robust error handling with detailed error messages for debugging
+- **API Errors**: Structured error responses with HTTP status codes and helpful context
+- **Endpoint Resolution**: Automatic detection of correct endpoints for OAuth vs API calls
 
 ## License
 
