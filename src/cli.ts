@@ -44,7 +44,7 @@ const showHelp = (): void => {
   console.log(`
 iNaturalist MCP Server v0.1.0
 
-Usage: inat-mcp-server [options]
+Usage: inaturalist [options]
 
 AUTHENTICATION: This server ONLY supports Resource Owner Password Credentials Flow.
 Authorization Code Flow, PKCE, and Assertion Flow are NOT supported.
@@ -67,20 +67,20 @@ Environment Variables:
 
 Examples:
   # Basic usage (read-only access)
-  inat-mcp-server
+  inaturalist
 
   # With OAuth credentials for full access (Resource Owner Password Credentials Flow ONLY)
-  inat-mcp-server --client-id your-client-id --client-secret your-client-secret --username your-username --password your-password
+  inaturalist --client-id your-client-id --client-secret your-client-secret --username your-username --password your-password
 
   # Using environment variables
   export INAT_CLIENT_ID=your-client-id
   export INAT_CLIENT_SECRET=your-client-secret
   export INAT_USERNAME=your-username
   export INAT_PASSWORD=your-password
-  inat-mcp-server
+  inaturalist
 
   # Custom API base URL
-  inat-mcp-server --base-url https://api.inaturalist.org/v1
+  inaturalist --base-url https://api.inaturalist.org/v1
 
 Tool Usage:
   Each tool represents a module and accepts a 'method' parameter to specify the operation.

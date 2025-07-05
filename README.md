@@ -17,8 +17,8 @@ A comprehensive Model Context Protocol (MCP) server providing access to the comp
 
 ```bash
 # Clone the repository
-git clone https://github.com/richard-stovall/inat-mcp-server.git
-cd inat-mcp-server
+git clone https://github.com/richard-stovall/inaturalist-mcp-server.git
+cd inaturalist-mcp-server
 
 # Install dependencies
 yarn install
@@ -202,7 +202,7 @@ Add to your Claude Desktop configuration:
   "mcpServers": {
     "inaturalist": {
       "command": "node",
-      "args": ["/path/to/inat-mcp-server/dist/cli.js"],
+      "args": ["/path/to/inaturalist-mcp-server/dist/cli.js"],
       "env": {
         "INAT_CLIENT_ID": "your-client-id",
         "INAT_CLIENT_SECRET": "your-client-secret",

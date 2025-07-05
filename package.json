@@ -41,7 +41,7 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.1",
-    "@richard-stovall/inat-typescript-client": "^0.1.1",
+    "@richard-stovall/inat-typescript-client": "^0.1.2",
     "zod": "^3.25.67"
   },
   "devDependencies": {
