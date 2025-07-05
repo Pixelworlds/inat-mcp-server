@@ -7,7 +7,9 @@
 
 > [!WARNING] > **Development Status Notice**
 >
-> <span style="color: red !important;">The iNaturalist API calls are returning too much data currently causing most of the requests to be rejected and causing the MCP server's clients to become unstable. Not recommended for use yet.</span>
+> ```diff
+> - The iNaturalist API calls are returning too much data currently causing most of the requests to be rejected and causing the MCP server's clients to become unstable. Not recommended for use yet.
+> ```
 
 A Model Context Protocol (MCP) server that provides access to the iNaturalist API through organized, category-based tools. Built for @richard-stovall/inat-typescript-client v0.2.0 with a completely rewritten architecture.
 
